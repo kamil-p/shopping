@@ -34,7 +34,11 @@ export async function login(
   const email = normalizeEmail(parsed.data.email);
   const { password } = parsed.data;
 
-  const user = db.select().from(users).where(eq(users.email, email)).get();
+  const user = await db
+    .select()
+    .from(users)
+    .where(eq(users.email, email))
+    .get();
 
   if (!user) {
     // Spend comparable time to avoid leaking which emails exist.

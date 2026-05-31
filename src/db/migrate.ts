@@ -1,6 +1,13 @@
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import { migrate } from "drizzle-orm/libsql/migrator";
 
 import { db } from "./index";
 
-migrate(db, { migrationsFolder: "drizzle" });
-console.log("✅ Migrations applied");
+async function main() {
+  await migrate(db, { migrationsFolder: "drizzle" });
+  console.log("✅ Migrations applied");
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

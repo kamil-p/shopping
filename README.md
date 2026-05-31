@@ -9,7 +9,7 @@ sign-up; users are provisioned with a script.
 
 - Next.js 16 (App Router, TypeScript, Turbopack)
 - Tailwind CSS v4 + shadcn/ui components
-- SQLite via `better-sqlite3` + Drizzle ORM (migrations with `drizzle-kit`)
+- SQLite via libsql (`@libsql/client`) + Drizzle ORM (migrations with `drizzle-kit`)
 - Custom session auth: random opaque token in an HTTP-only cookie, session rows in SQLite,
   passwords hashed with Argon2id (`@node-rs/argon2`)
 
@@ -24,9 +24,8 @@ pnpm dev              # start the dev server on http://localhost:3000
 
 Visiting any page while logged out redirects to `/login`.
 
-> Note: `better-sqlite3` needs a Python ≥ 3.8 to build its native module on install.
-> If install fails with a gyp/Python error, point it at a newer Python, e.g.
-> `npm_config_python=/usr/bin/python3 pnpm install`.
+> The libsql driver ships prebuilt binaries via npm — there is no native compilation
+> step (no node-gyp / Python toolchain required).
 
 ## Creating users
 

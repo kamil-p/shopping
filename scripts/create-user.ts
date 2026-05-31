@@ -34,7 +34,7 @@ async function main() {
 
   const normalizedEmail = normalizeEmail(parsed.data.email);
 
-  const existing = db
+  const existing = await db
     .select({ id: users.id })
     .from(users)
     .where(eq(users.email, normalizedEmail))
@@ -47,7 +47,7 @@ async function main() {
 
   const passwordHash = await hashPassword(parsed.data.password);
 
-  const created = db
+  const created = await db
     .insert(users)
     .values({ email: normalizedEmail, passwordHash })
     .returning({ id: users.id, email: users.email })

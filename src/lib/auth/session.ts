@@ -20,7 +20,10 @@ export async function createSession(
 ): Promise<{ token: string; expiresAt: Date }> {
   const token = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + SESSION_DURATION_MS);
-  db.insert(sessions).values({ id: hashToken(token), userId, expiresAt }).run();
+  await db
+    .insert(sessions)
+    .values({ id: hashToken(token), userId, expiresAt })
+    .run();
   return { token, expiresAt };
 }
 
@@ -29,7 +32,7 @@ export async function validateSessionToken(
   token: string,
 ): Promise<{ user: User } | null> {
   const id = hashToken(token);
-  const row = db
+  const row = await db
     .select({ user: users, expiresAt: sessions.expiresAt })
     .from(sessions)
     .innerJoin(users, eq(sessions.userId, users.id))
@@ -39,7 +42,7 @@ export async function validateSessionToken(
   if (!row) return null;
 
   if (row.expiresAt.getTime() <= Date.now()) {
-    db.delete(sessions).where(eq(sessions.id, id)).run();
+    await db.delete(sessions).where(eq(sessions.id, id)).run();
     return null;
   }
 
@@ -47,7 +50,7 @@ export async function validateSessionToken(
 }
 
 export async function invalidateSession(token: string): Promise<void> {
-  db.delete(sessions).where(eq(sessions.id, hashToken(token))).run();
+  await db.delete(sessions).where(eq(sessions.id, hashToken(token))).run();
 }
 
 export async function setSessionCookie(
