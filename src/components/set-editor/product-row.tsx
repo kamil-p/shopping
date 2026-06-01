@@ -106,13 +106,13 @@ export function ProductRow({
           </DropdownMenuItem>
 
           <DropdownMenuSeparator />
-          <DropdownMenuLabel>Sklep</DropdownMenuLabel>
           <DropdownMenuRadioGroup
             value={item.storeId ?? "none"}
             onValueChange={(value) =>
               onSetStore(value === "none" ? null : value)
             }
           >
+            <DropdownMenuLabel>Sklep</DropdownMenuLabel>
             <DropdownMenuRadioItem value="none">
               Domyślny zestawu
             </DropdownMenuRadioItem>

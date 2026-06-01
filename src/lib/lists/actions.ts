@@ -1,11 +1,21 @@
 "use server";
 
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, max } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
 
 import { db } from "@/db";
-import { listItems, lists, setItems, sets, stores } from "@/db/schema";
+import {
+  listItems,
+  lists,
+  setItems,
+  sets,
+  stores,
+  type ListItem,
+} from "@/db/schema";
 import { requireUser } from "@/lib/auth/require-user";
+
+const itemNameSchema = z.string().trim().min(1, "Podaj nazwę").max(120);
 
 /**
  * Create a shopping list as a SNAPSHOT of a set's products.
@@ -42,12 +52,9 @@ export async function createListFromSet(
     ? (storeName.get(set.defaultStoreId) ?? null)
     : null;
 
-  const listName =
-    name?.trim() ||
-    `${set.name} — ${new Date().toLocaleDateString("pl-PL", {
-      day: "2-digit",
-      month: "2-digit",
-    })}`;
+  // The list's date is shown separately (from createdAt), so the name is just
+  // the set name — no date suffix.
+  const listName = name?.trim() || set.name;
 
   const list = await db
     .insert(lists)
@@ -70,6 +77,55 @@ export async function createListFromSet(
 
   revalidatePath("/lists");
   return { id: list.id };
+}
+
+/** Throws unless the list exists and belongs to the user. */
+async function ownedList(listId: string, userId: string): Promise<void> {
+  const row = await db
+    .select({ id: lists.id })
+    .from(lists)
+    .where(and(eq(lists.id, listId), eq(lists.userId, userId)))
+    .get();
+  if (!row) throw new Error("Lista nie istnieje");
+}
+
+/**
+ * Add an ad-hoc item to a list. Lists are standalone snapshots, so this only
+ * inserts into list_items — the source set is never touched. The item has no
+ * store (lands in the "Bez sklepu" group) and is appended to the end.
+ */
+export async function addListItem(
+  listId: string,
+  name: string,
+): Promise<ListItem> {
+  const user = await requireUser();
+  await ownedList(listId, user.id);
+
+  const parsed = itemNameSchema.safeParse(name);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Nieprawidłowa nazwa");
+  }
+
+  const top = await db
+    .select({ value: max(listItems.sortOrder) })
+    .from(listItems)
+    .where(eq(listItems.listId, listId))
+    .get();
+
+  const created = await db
+    .insert(listItems)
+    .values({
+      listId,
+      name: parsed.data,
+      storeName: null,
+      sortOrder: (top?.value ?? 0) + 10,
+    })
+    .returning()
+    .get();
+
+  revalidatePath(`/lists/${listId}`);
+  revalidatePath("/lists");
+  return created;
 }
 
 /** Returns the parent list id (ownership-scoped) for a list item, or throws. */

@@ -1,13 +1,14 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArchiveIcon, ArrowLeftIcon, CheckIcon } from "lucide-react";
+import { ArchiveIcon, ArrowLeftIcon, CheckIcon, PlusIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import type { List, ListItem } from "@/db/schema";
-import { archiveList, toggleListItem } from "@/lib/lists/actions";
+import { addListItem, archiveList, toggleListItem } from "@/lib/lists/actions";
+import { listDisplayName } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -20,6 +21,8 @@ export function ListView({
 }) {
   const router = useRouter();
   const [items, setItems] = useState(initialItems);
+  const [draft, setDraft] = useState("");
+  const draftRef = useRef<HTMLInputElement>(null);
   const [, startTransition] = useTransition();
 
   const checkedCount = items.filter((i) => i.checked).length;
@@ -57,6 +60,36 @@ export function ListView({
     });
   }
 
+  function addItem() {
+    const value = draft.trim();
+    if (!value) return;
+    const tempId = crypto.randomUUID();
+    const maxSort = items.reduce((m, it) => Math.max(m, it.sortOrder), 0);
+    const optimistic: ListItem = {
+      id: tempId,
+      listId: list.id,
+      name: value,
+      storeName: null,
+      checked: false,
+      sortOrder: maxSort + 10,
+    };
+    setItems((prev) => [...prev, optimistic]);
+    setDraft("");
+    draftRef.current?.focus();
+
+    startTransition(async () => {
+      try {
+        const created = await addListItem(list.id, value);
+        setItems((prev) => prev.map((it) => (it.id === tempId ? created : it)));
+      } catch (error) {
+        setItems((prev) => prev.filter((it) => it.id !== tempId));
+        toast.error(
+          error instanceof Error ? error.message : "Nie udało się dodać pozycji",
+        );
+      }
+    });
+  }
+
   function archive() {
     startTransition(async () => {
       try {
@@ -86,7 +119,7 @@ export function ListView({
       <header className="mb-6 flex items-start justify-between gap-4">
         <div className="min-w-0">
           <h1 className="font-heading text-2xl font-semibold tracking-tight">
-            {list.name}
+            {listDisplayName(list.name)}
           </h1>
           <p className="text-sm text-muted-foreground">
             {checkedCount}/{items.length} odhaczonych
@@ -98,48 +131,73 @@ export function ListView({
         </Button>
       </header>
 
-      {items.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Ta lista jest pusta.</p>
-      ) : (
-        <div className="space-y-5">
-          {groups.map((group) => (
-            <div key={group.store} className="space-y-2">
-              <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                {group.store}
-              </p>
-              <div className="space-y-1.5">
-                {group.items.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => toggle(item)}
-                    className="flex w-full items-center gap-3 rounded-lg border bg-card px-3 py-2 text-left text-sm transition-colors hover:bg-muted/50"
+      <div className="space-y-5">
+        {groups.map((group) => (
+          <div key={group.store} className="space-y-2">
+            <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+              {group.store}
+            </p>
+            <div className="space-y-1.5">
+              {group.items.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => toggle(item)}
+                  className="flex w-full items-center gap-3 rounded-lg border bg-card px-3 py-2 text-left text-sm transition-colors hover:bg-muted/50"
+                >
+                  <span
+                    className={cn(
+                      "grid size-5 shrink-0 place-items-center rounded-md border transition-colors",
+                      item.checked
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-input",
+                    )}
                   >
-                    <span
-                      className={cn(
-                        "grid size-5 shrink-0 place-items-center rounded-md border transition-colors",
-                        item.checked
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-input",
-                      )}
-                    >
-                      {item.checked ? <CheckIcon className="size-3.5" /> : null}
-                    </span>
-                    <span
-                      className={cn(
-                        "flex-1 truncate",
-                        item.checked && "text-muted-foreground line-through",
-                      )}
-                    >
-                      {item.name}
-                    </span>
-                  </button>
-                ))}
-              </div>
+                    {item.checked ? <CheckIcon className="size-3.5" /> : null}
+                  </span>
+                  <span
+                    className={cn(
+                      "flex-1 truncate",
+                      item.checked && "text-muted-foreground line-through",
+                    )}
+                  >
+                    {item.name}
+                  </span>
+                </button>
+              ))}
             </div>
-          ))}
+          </div>
+        ))}
+
+        {/* Add ad-hoc items. A list is a standalone snapshot — these never
+            touch the source set. */}
+        <div>
+          {items.length === 0 ? (
+            <p className="mb-2 text-sm text-muted-foreground">
+              Ta lista jest pusta. Dodaj pierwszą pozycję poniżej.
+            </p>
+          ) : null}
+          <div className="flex items-center gap-2 rounded-lg border border-dashed px-3 py-2">
+            <PlusIcon className="size-4 shrink-0 text-primary" />
+            <input
+              ref={draftRef}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  addItem();
+                }
+              }}
+              placeholder="Dodaj produkt…"
+              className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            />
+            <span className="shrink-0 text-xs text-muted-foreground">
+              wpisz nazwę · Enter
+            </span>
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

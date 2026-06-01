@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { requireUser } from "@/lib/auth/require-user";
 import { listActiveLists } from "@/lib/lists/queries";
-import { formatDate } from "@/lib/format";
+import { formatListDate, listDisplayName } from "@/lib/format";
 import { Card } from "@/components/ui/card";
 
 export default async function ListyPage() {
@@ -30,9 +30,11 @@ export default async function ListyPage() {
               <Link key={list.id} href={`/lists/${list.id}`} className="group block">
                 <Card className="flex flex-row items-center justify-between gap-4 p-4 transition-colors group-hover:ring-ring">
                   <div className="min-w-0">
-                    <p className="truncate font-medium">{list.name}</p>
+                    <p className="truncate font-medium">
+                      {listDisplayName(list.name)}
+                    </p>
                     <p className="text-sm text-muted-foreground">
-                      {formatDate(list.createdAt)}
+                      {formatListDate(list.createdAt)}
                     </p>
                   </div>
                   <span

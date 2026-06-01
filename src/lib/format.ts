@@ -15,10 +15,22 @@ export function pluralPl(
 export const produkty = (n: number) =>
   pluralPl(n, "produkt", "produkty", "produktów");
 
-export function formatDate(date: Date): string {
-  return date.toLocaleDateString("pl-PL", {
+/** "Niedziela, 31.05.2026" — weekday + full date, for list subtitles. */
+export function formatListDate(date: Date): string {
+  const formatted = date.toLocaleDateString("pl-PL", {
+    weekday: "long",
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
   });
+  return formatted.charAt(0).toUpperCase() + formatted.slice(1);
+}
+
+/**
+ * Display name for a list. Older lists were created as `${set} — DD.MM`; the
+ * date now lives in the subtitle, so strip that legacy suffix to avoid showing
+ * the date twice.
+ */
+export function listDisplayName(name: string): string {
+  return name.replace(/\s+—\s+\d{2}\.\d{2}$/, "");
 }
