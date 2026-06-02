@@ -81,6 +81,16 @@ Polish: `/sets` (list) → `/sets/[id]` (the `SetEditor`, the main interactive s
 **Theme**: dark/light via `next-themes` (`attribute="class"`, matching the `.dark` OKLch tokens
 in `globals.css`). `ThemeProvider` wraps the root layout (which sets `suppressHydrationWarning`).
 
+**PWA / install**: the app is installable as a standalone home-screen web app via
+`src/app/manifest.ts` (`display: "standalone"`), brand icons generated on the fly by the
+`next/og` route `src/app/icons/[name]/route.tsx` (192/512/512-maskable + a 180px
+apple-touch-icon), and Apple/PWA meta tags in `src/app/layout.tsx`. `InstallButton`
+(`src/components/install-button.tsx`, in the `AppShell` top bar next to the `ThemeToggle`) fires
+the real `beforeinstallprompt` on Android/Chromium, shows an "add to Home Screen" instructions
+dialog on iOS, and hides itself once running standalone (`useSyncExternalStore` on
+`display-mode: standalone`). All manifest/icon URLs contain a dot, so `proxy.ts` serves them
+publicly with no auth change.
+
 ## Conventions
 
 - `@/*` is aliased to `src/*` (tsconfig paths).
@@ -94,6 +104,33 @@ in `globals.css`). `ThemeProvider` wraps the root layout (which sets `suppressHy
 - Shared email/password validation lives in `src/lib/auth/credentials.ts` (Zod) and is used
   by both the login action and the create-user script; emails are normalized (trim +
   lowercase) before any DB lookup.
+
+## Deployment
+
+Deployed via Docker to a **Mikrus** VPS. One command does everything:
+
+```bash
+./deploy.sh   # rsync sources → SSH → docker compose up -d --build → health-check /login
+```
+
+The 5 config vars (host, remote dir, port) live at the top of `deploy.sh`; the SSH host
+`mikrus` is a `~/.ssh/config` alias. `rsync` uses `--exclude-from rsync-exclude.txt`, which
+excludes `data/` and `.env` — **a deploy never overwrites the production DB or env file.**
+
+Non-obvious choices baked into the Docker files (don't "fix" these):
+
+- **`node:22-bookworm-slim` (glibc), not Alpine** — `@node-rs/argon2` and libsql ship
+  `*-gnu` prebuilt binaries that don't run on musl.
+- **Node 22, not 20** — pnpm 11 needs `node:sqlite` (Node ≥ 22).
+- **`pnpm install --frozen-lockfile --ignore-scripts`** — pnpm 11 aborts a fresh install on
+  unapproved build scripts; skipping is safe because every native module (argon2, libsql,
+  esbuild, sharp) uses prebuilts. devDeps are installed (no `NODE_ENV=production` at install
+  time) because the build needs `tsx`/`typescript`/`tailwind`.
+- **`network_mode: host`** (docker-compose) — the app binds `[::]:3000` so it lands directly
+  on the VPS's public IPv6; Docker's default port publish is IPv4-only.
+- **`./data:/app/data` volume** — keeps the SQLite DB on the host, surviving container rebuilds.
+- **`docker-entrypoint.sh` runs `pnpm db:migrate` then `next start -H :: -p $PORT`** —
+  migrations apply automatically on every container start.
 
 ## Test user credentials
 
