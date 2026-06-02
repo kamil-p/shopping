@@ -4,15 +4,13 @@ import { useState } from "react";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
-  GripVerticalIcon,
   MoreVerticalIcon,
   PencilIcon,
+  TagIcon,
   Trash2Icon,
 } from "lucide-react";
 
 import type { SetItem, Store } from "@/db/schema";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,28 +21,36 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
 
 export function ProductRow({
   item,
   stores,
   isFirst,
   isLast,
+  isDragging,
   onRename,
   onSetStore,
   onMove,
   onDelete,
+  onDragStart,
+  onDragEnter,
+  onDragEnd,
 }: {
   item: SetItem;
   stores: Store[];
   isFirst: boolean;
   isLast: boolean;
+  isDragging: boolean;
   onRename: (name: string) => void;
   onSetStore: (storeId: string | null) => void;
   onMove: (direction: -1 | 1) => void;
   onDelete: () => void;
+  onDragStart: () => void;
+  onDragEnter: () => void;
+  onDragEnd: () => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const [grabbed, setGrabbed] = useState(false);
   const overrideStore = stores.find((s) => s.id === item.storeId);
 
   function commit(value: string) {
@@ -54,17 +60,48 @@ export function ProductRow({
   }
 
   return (
-    <div className="flex items-center gap-2 rounded-lg border bg-card px-2.5 py-1.5">
-      <GripVerticalIcon
-        className="size-4 shrink-0 cursor-grab text-muted-foreground/50"
+    <div
+      className={`zk-row${isDragging ? " dragging" : ""}`}
+      draggable={grabbed}
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = "move";
+        // Firefox only starts a drag once some data is set.
+        e.dataTransfer.setData("text/plain", item.id);
+        onDragStart();
+      }}
+      onDragEnter={onDragEnter}
+      onDragOver={(e) => e.preventDefault()}
+      onDragEnd={() => {
+        setGrabbed(false);
+        onDragEnd();
+      }}
+    >
+      <span
+        className="zk-grip"
         aria-hidden
-      />
+        onPointerDown={() => setGrabbed(true)}
+        onPointerUp={() => setGrabbed(false)}
+        onPointerCancel={() => setGrabbed(false)}
+      >
+        <span className="gr">
+          <i />
+          <i />
+        </span>
+        <span className="gr">
+          <i />
+          <i />
+        </span>
+        <span className="gr">
+          <i />
+          <i />
+        </span>
+      </span>
 
       {editing ? (
-        <Input
+        <input
           autoFocus
+          className="zk-row-name editable"
           defaultValue={item.name}
-          className="h-7 flex-1"
           onBlur={(e) => commit(e.currentTarget.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") commit(e.currentTarget.value);
@@ -74,30 +111,31 @@ export function ProductRow({
       ) : (
         <button
           type="button"
+          className="zk-row-name truncate"
           onClick={() => setEditing(true)}
-          className="flex-1 truncate text-left text-sm"
         >
           {item.name}
         </button>
       )}
 
       {overrideStore ? (
-        <Badge variant="outline" className="shrink-0 text-muted-foreground">
-          @{overrideStore.name}
-        </Badge>
+        <span className="zk-store-tag">
+          <TagIcon className="size-[13px]" />
+          {overrideStore.name}
+        </span>
       ) : null}
 
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
-            <Button
-              variant="ghost"
-              size="icon-sm"
+            <button
+              type="button"
+              className="zk-row-kebab"
               aria-label={`Opcje dla ${item.name}`}
             />
           }
         >
-          <MoreVerticalIcon />
+          <MoreVerticalIcon className="size-[17px]" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-44">
           <DropdownMenuItem onClick={() => setEditing(true)}>

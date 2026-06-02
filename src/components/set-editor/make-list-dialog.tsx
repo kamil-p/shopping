@@ -2,24 +2,21 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRightIcon, ShoppingCartIcon } from "lucide-react";
+import { ShoppingCartIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { createListFromSet } from "@/lib/lists/actions";
 import { produkty } from "@/lib/format";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 
 function defaultListName(setName: string): string {
   const date = new Date().toLocaleDateString("pl-PL", {
@@ -66,26 +63,37 @@ export function MakeListDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger
-        render={<Button size="lg" disabled={itemCount === 0} />}
+    <Sheet open={open} onOpenChange={handleOpenChange}>
+      <SheetTrigger
+        render={
+          <button type="button" className="zk-cta" disabled={itemCount === 0} />
+        }
       >
-        <ShoppingCartIcon />
+        <ShoppingCartIcon className="size-5" />
         Zrób listę zakupów
-        <ArrowRightIcon />
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Utwórz listę zakupów</DialogTitle>
-          <DialogDescription>
-            {itemCount} {produkty(itemCount)} · zestaw zostaje nietknięty
-          </DialogDescription>
-        </DialogHeader>
+      </SheetTrigger>
+      <SheetContent
+        side="bottom"
+        showCloseButton={false}
+        className="mx-auto w-full gap-3 rounded-t-3xl px-5 pt-3.5 pb-7 sm:max-w-[600px]"
+      >
+        <span className="mx-auto h-1 w-10 rounded-full bg-border-strong" aria-hidden />
+        <SheetTitle className="font-heading text-[22px] font-bold tracking-tight">
+          Utwórz listę zakupów
+        </SheetTitle>
+        <p className="-mt-1.5 flex items-center gap-2 text-sm text-muted-foreground">
+          {itemCount} {produkty(itemCount)}
+          <span className="size-1 rounded-full bg-text-faint" aria-hidden />
+          zestaw zostaje nietknięty
+        </p>
 
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="list-name">Nazwa listy</Label>
+        <div className="mt-1 flex flex-col gap-1.5">
+          <Label htmlFor="list-name" className="text-xs font-semibold text-muted-foreground">
+            Nazwa listy
+          </Label>
           <Input
             id="list-name"
+            className="h-11 bg-secondary text-[15.5px]"
             value={name}
             onChange={(e) => setName_(e.target.value)}
             onKeyDown={(e) => {
@@ -97,14 +105,15 @@ export function MakeListDialog({
           />
         </div>
 
-        <DialogFooter>
-          <DialogClose render={<Button variant="outline" />}>Anuluj</DialogClose>
-          <Button onClick={create} disabled={pending}>
-            Utwórz
-            <ArrowRightIcon />
+        <div className="mt-1 flex gap-2.5">
+          <SheetClose render={<Button variant="outline" className="h-11 flex-1" />}>
+            Anuluj
+          </SheetClose>
+          <Button className="h-11 flex-[1.4]" onClick={create} disabled={pending}>
+            Utwórz listę
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }

@@ -94,3 +94,8 @@ in `globals.css`). `ThemeProvider` wraps the root layout (which sets `suppressHy
 - Shared email/password validation lives in `src/lib/auth/credentials.ts` (Zod) and is used
   by both the login action and the create-user script; emails are normalized (trim +
   lowercase) before any DB lookup.
+
+## Test user credentials
+
+Login: kamil.check@gmail.com
+Password: admin1234

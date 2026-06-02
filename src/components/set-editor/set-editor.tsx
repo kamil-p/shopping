@@ -3,7 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeftIcon, PlusIcon, XIcon } from "lucide-react";
+import { ArrowLeftIcon, ArrowRightIcon, PlusIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import type { Set, SetItem, Store } from "@/db/schema";
@@ -18,9 +18,7 @@ import {
   setSetIcon,
 } from "@/lib/sets/actions";
 import { addStore } from "@/lib/stores/actions";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { produkty } from "@/lib/format";
 import {
   Popover,
   PopoverContent,
@@ -48,10 +46,10 @@ function EmojiButton({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         render={
-          <Button variant="outline" size="icon-lg" aria-label="Zmień ikonę" />
+          <button className="zk-set-emoji" type="button" aria-label="Zmień ikonę" />
         }
       >
-        <span className="text-xl leading-none">{value}</span>
+        {value}
       </PopoverTrigger>
       <PopoverContent align="start" className="w-auto">
         <div className="grid grid-cols-6 gap-1">
@@ -94,6 +92,10 @@ export function SetEditor({
   const [items, setItems] = useState(initialItems);
   const [draft, setDraft] = useState("");
   const draftRef = useRef<HTMLInputElement>(null);
+
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const dragId = useRef<string | null>(null);
+  const movedDuringDrag = useRef(false);
 
   const defaultStore = stores.find((s) => s.id === defaultStoreId);
 
@@ -203,96 +205,137 @@ export function SetEditor({
     const next = [...items];
     [next[index], next[target]] = [next[target], next[index]];
     setItems(next);
+    persistOrder(next);
+  }
+
+  function persistOrder(ordered: SetItem[]) {
     run(
-      () =>
-        reorderSetItems(
-          set.id,
-          next.map((it) => it.id),
-        ),
+      () => reorderSetItems(set.id, ordered.map((it) => it.id)),
       "Nie udało się zmienić kolejności",
     );
   }
 
+  function dragStart(id: string) {
+    dragId.current = id;
+    setDraggingId(id);
+    movedDuringDrag.current = false;
+  }
+
+  function dragOverRow(overId: string) {
+    const fromId = dragId.current;
+    if (!fromId || fromId === overId) return;
+    setItems((prev) => {
+      const from = prev.findIndex((it) => it.id === fromId);
+      const to = prev.findIndex((it) => it.id === overId);
+      if (from === -1 || to === -1 || from === to) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      movedDuringDrag.current = true;
+      return next;
+    });
+  }
+
+  function dragEnd() {
+    dragId.current = null;
+    setDraggingId(null);
+    if (!movedDuringDrag.current) return;
+    movedDuringDrag.current = false;
+    persistOrder(items);
+  }
+
   return (
-    <div className="mx-auto flex h-full w-full max-w-2xl flex-col">
-      <div className="flex-1 space-y-6 px-4 py-6 md:px-6">
-        <Link
-          href="/sets"
-          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-        >
+    <>
+      <main className="zk-main">
+        <Link href="/sets" className="zk-back">
           <ArrowLeftIcon className="size-4" />
           Zestawy
         </Link>
 
-        {/* Set name */}
-        <div className="space-y-1.5">
-          <label
-            htmlFor="set-name"
-            className="text-xs font-medium text-muted-foreground"
-          >
-            Nazwa zestawu
-          </label>
-          <div className="flex items-center gap-2">
-            <EmojiButton value={icon} onPick={pickIcon} />
-            <Input
-              id="set-name"
+        {/* Set header */}
+        <div className="zk-set-head">
+          <EmojiButton value={icon} onPick={pickIcon} />
+          <div className="zk-set-name-wrap">
+            <input
+              className="zk-set-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               onBlur={commitName}
               onKeyDown={(e) => {
                 if (e.key === "Enter") e.currentTarget.blur();
               }}
-              className="h-11 flex-1 text-lg font-medium md:text-lg"
+              aria-label="Nazwa zestawu"
             />
+            <div className="zk-set-sub">
+              {items.length} {produkty(items.length)}
+            </div>
           </div>
         </div>
 
         {/* Default store */}
-        <div className="space-y-1.5">
-          <p className="text-xs font-medium text-muted-foreground">
-            Domyślny sklep
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
+        <section>
+          <div className="zk-sec-label">Domyślny sklep</div>
+          <div className="zk-chips">
             {defaultStore ? (
-              <Badge variant="secondary" className="h-7 gap-1 pr-1 pl-2.5">
+              <span className="zk-chip">
                 {defaultStore.name}
                 <button
                   type="button"
-                  aria-label="Usuń domyślny sklep"
+                  className="x"
                   onClick={() => chooseDefaultStore(null)}
-                  className="grid size-4 place-items-center rounded-full hover:bg-foreground/10"
+                  aria-label={`Usuń ${defaultStore.name}`}
                 >
                   <XIcon className="size-3" />
                 </button>
-              </Badge>
+              </span>
             ) : null}
             <DefaultStorePicker
               stores={stores}
+              currentId={defaultStoreId}
               onSelect={chooseDefaultStore}
               onCreate={createStore}
             />
           </div>
-        </div>
+        </section>
 
         {/* Products */}
-        <div className="space-y-2">
-          {items.map((item, index) => (
-            <ProductRow
-              key={item.id}
-              item={item}
-              stores={stores}
-              isFirst={index === 0}
-              isLast={index === items.length - 1}
-              onRename={(value) => renameProduct(item.id, value)}
-              onSetStore={(storeId) => changeProductStore(item.id, storeId)}
-              onMove={(direction) => moveProduct(index, direction)}
-              onDelete={() => deleteProduct(item.id)}
-            />
-          ))}
+        <section>
+          <div className="zk-sec-label">Produkty</div>
+          <div className="zk-list">
+            {items.length === 0 ? (
+              <div className="zk-empty">
+                Pusto — dopisz pierwszy produkt poniżej 👇
+              </div>
+            ) : (
+              items.map((item, index) => (
+                <ProductRow
+                  key={item.id}
+                  item={item}
+                  stores={stores}
+                  isFirst={index === 0}
+                  isLast={index === items.length - 1}
+                  isDragging={draggingId === item.id}
+                  onRename={(value) => renameProduct(item.id, value)}
+                  onSetStore={(storeId) => changeProductStore(item.id, storeId)}
+                  onMove={(direction) => moveProduct(index, direction)}
+                  onDelete={() => deleteProduct(item.id)}
+                  onDragStart={() => dragStart(item.id)}
+                  onDragEnter={() => dragOverRow(item.id)}
+                  onDragEnd={dragEnd}
+                />
+              ))
+            )}
+          </div>
 
           {/* Quick add */}
-          <div className="flex items-center gap-2 rounded-lg border border-dashed px-2.5 py-1.5">
-            <PlusIcon className="size-4 shrink-0 text-primary" />
+          <div
+            className="zk-quick"
+            style={{ marginTop: 9 }}
+            onClick={() => draftRef.current?.focus()}
+          >
+            <span className="plus">
+              <PlusIcon className="size-5" />
+            </span>
             <input
               ref={draftRef}
               value={draft}
@@ -304,25 +347,27 @@ export function SetEditor({
                 }
               }}
               placeholder="Dodaj produkt…"
-              className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
             />
-            <span className="shrink-0 text-xs text-muted-foreground">
-              wpisz nazwę · Enter
-            </span>
+            {draft.trim() ? (
+              <button
+                type="button"
+                className="zk-quick-add-btn"
+                onClick={addProduct}
+                aria-label="Dodaj"
+              >
+                <ArrowRightIcon className="size-[19px]" />
+              </button>
+            ) : (
+              <span className="zk-enter-hint">ENTER</span>
+            )}
           </div>
-        </div>
-      </div>
+        </section>
+      </main>
 
       {/* Sticky make-list CTA */}
-      <div className="sticky bottom-0 border-t bg-background/85 px-4 py-3 backdrop-blur md:px-6">
-        <div className="flex justify-end">
-          <MakeListDialog
-            setId={set.id}
-            setName={name}
-            itemCount={items.length}
-          />
-        </div>
+      <div className="zk-cta-bar">
+        <MakeListDialog setId={set.id} setName={name} itemCount={items.length} />
       </div>
-    </div>
+    </>
   );
 }
