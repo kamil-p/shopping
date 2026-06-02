@@ -1,0 +1,16 @@
+services:
+  app:
+    build: .
+    container_name: shopping-app
+    # Kontener współdzieli sieć hosta → apka na [::]:3000 ląduje wprost
+    # na publicznym IPv6 VPS-a (omija domyślny IPv4-only publish Dockera).
+    network_mode: host
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    volumes:
+      # Baza SQLite trwała na hoście — przeżywa przebudowy kontenera.
+      - ./data:/app/data
+    restart: unless-stopped
