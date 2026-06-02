@@ -4,6 +4,7 @@ node_modules/
 data/
 .env
 .env.*
+.idea/
 *.tsbuildinfo
 .DS_Store
 .claude/

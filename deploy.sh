@@ -7,7 +7,6 @@ APP_NAME="shopping-app"
 SSH_HOST="mikrus"
 REMOTE_DIR="/opt/apps/${APP_NAME}"
 PORT="3000"
-SUBDOMAIN="shopping.tojest.dev"
 # ─────────────────────────────────────────────────────────────
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
@@ -36,4 +35,4 @@ exit 1
 REMOTE
 
 echo ""
-echo "✅ Gotowe. Otwórz: https://${SUBDOMAIN}"
+echo "✅ Gotowe"
