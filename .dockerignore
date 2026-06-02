@@ -1,0 +1,10 @@
+.git
+node_modules
+.next
+data
+.env
+.env.*
+*.tsbuildinfo
+.DS_Store
+.claude
+npm-debug.log*
