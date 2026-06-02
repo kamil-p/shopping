@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Bricolage_Grotesque, Geist_Mono, Hanken_Grotesk } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -24,6 +24,27 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Zakupy",
   description: "Wewnętrzna aplikacja do zakupów",
+  applicationName: "Zakupy",
+  // Full-screen standalone behavior on iOS (emits apple-mobile-web-app-* tags).
+  appleWebApp: {
+    capable: true,
+    title: "Zakupy",
+    statusBarStyle: "default",
+  },
+  // iOS uses apple-touch-icon, not the manifest icons.
+  icons: {
+    apple: "/icons/apple-icon.png",
+  },
+};
+
+export const viewport: Viewport = {
+  // Blend the mobile browser chrome with the page background per theme.
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f4f3ee" },
+    { media: "(prefers-color-scheme: dark)", color: "#0f110e" },
+  ],
+  // Draw under the iPhone notch / safe areas when running standalone.
+  viewportFit: "cover",
 };
 
 export default function RootLayout({

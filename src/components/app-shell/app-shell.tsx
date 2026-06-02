@@ -7,6 +7,7 @@ import { useTheme } from "next-themes";
 import { logout } from "@/lib/auth/actions";
 
 import { NavLinks } from "./nav-links";
+import { InstallButton } from "@/components/install-button";
 
 function BrandMark() {
   return (
@@ -93,6 +94,7 @@ export function AppShell({
           <span className="zk-brand-name">Zakupy</span>
         </div>
         <span className="zk-spacer" />
+        <InstallButton />
         <ThemeControls variant="icon" />
         <div className="zk-user-pill">
           <span className="zk-avatar">{initial}</span>
