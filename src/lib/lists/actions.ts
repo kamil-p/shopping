@@ -11,9 +11,11 @@ import {
   setItems,
   sets,
   stores,
+  type List,
   type ListItem,
 } from "@/db/schema";
 import { requireUser } from "@/lib/auth/require-user";
+import { selectActiveListsSnapshot } from "@/lib/lists/queries";
 
 const itemNameSchema = z.string().trim().min(1, "Podaj nazwę").max(120);
 
@@ -163,6 +165,20 @@ export async function archiveList(listId: string): Promise<void> {
     .where(and(eq(lists.id, listId), eq(lists.userId, user.id)))
     .run();
   revalidatePath("/lists");
+}
+
+/**
+ * Snapshot of all the current user's active lists + items, for warming the
+ * offline mirror. Auth flows through the `session` cookie that Server Actions
+ * attach automatically, so the same call works for the initial pull AND for the
+ * post-reconnect refresh.
+ */
+export async function getActiveListsSnapshot(): Promise<{
+  lists: List[];
+  items: ListItem[];
+}> {
+  const user = await requireUser();
+  return selectActiveListsSnapshot(user.id);
 }
 
 export async function deleteList(listId: string): Promise<void> {

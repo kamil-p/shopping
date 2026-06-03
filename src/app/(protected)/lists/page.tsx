@@ -1,9 +1,8 @@
-import Link from "next/link";
-
 import { requireUser } from "@/lib/auth/require-user";
 import { listActiveLists } from "@/lib/lists/queries";
 import { formatListDate, listDisplayName } from "@/lib/format";
 import { Card } from "@/components/ui/card";
+import { OfflineLink } from "@/components/offline/offline-link";
 
 export default async function ListyPage() {
   const user = await requireUser();
@@ -27,7 +26,11 @@ export default async function ListyPage() {
           {lists.map((list) => {
             const done = list.itemCount > 0 && list.checkedCount === list.itemCount;
             return (
-              <Link key={list.id} href={`/lists/${list.id}`} className="group block">
+              <OfflineLink
+                key={list.id}
+                href={`/lists/${list.id}`}
+                className="group block"
+              >
                 <Card className="flex flex-row items-center justify-between gap-4 p-4 transition-colors group-hover:ring-ring">
                   <div className="min-w-0">
                     <p className="truncate font-medium">
@@ -47,7 +50,7 @@ export default async function ListyPage() {
                     {list.checkedCount}/{list.itemCount}
                   </span>
                 </Card>
-              </Link>
+              </OfflineLink>
             );
           })}
         </div>

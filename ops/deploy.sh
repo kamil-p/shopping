@@ -9,7 +9,7 @@ REMOTE_DIR="/opt/apps/${APP_NAME}"
 PORT="3000"
 # ─────────────────────────────────────────────────────────────
 
-cd "$(dirname "${BASH_SOURCE[0]}")"
+cd "$(dirname "${BASH_SOURCE[0]}")/.."   # katalog projektu (skrypty leżą w ops/)
 
 echo "▶ [1/4] Połączenie + katalogi na serwerze..."
 ssh -o ConnectTimeout=10 "$SSH_HOST" "mkdir -p '${REMOTE_DIR}/data'"

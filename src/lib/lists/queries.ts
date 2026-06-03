@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 
 import { db } from "@/db";
 import { listItems, lists, type List, type ListItem } from "@/db/schema";
@@ -51,4 +51,36 @@ export async function getListWithItems(
     .all();
 
   return { list, items };
+}
+
+/**
+ * All of a user's active lists plus a flat array of their items, in one payload.
+ * Used to warm the offline mirror (IndexedDB) so every active list is available
+ * without a network round-trip. See `src/lib/offline/`.
+ */
+export async function selectActiveListsSnapshot(
+  userId: string,
+): Promise<{ lists: List[]; items: ListItem[] }> {
+  const activeLists = await db
+    .select()
+    .from(lists)
+    .where(and(eq(lists.userId, userId), eq(lists.status, "active")))
+    .orderBy(desc(lists.createdAt))
+    .all();
+
+  if (activeLists.length === 0) return { lists: [], items: [] };
+
+  const items = await db
+    .select()
+    .from(listItems)
+    .where(
+      inArray(
+        listItems.listId,
+        activeLists.map((l) => l.id),
+      ),
+    )
+    .orderBy(asc(listItems.sortOrder))
+    .all();
+
+  return { lists: activeLists, items };
 }

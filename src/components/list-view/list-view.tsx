@@ -1,26 +1,31 @@
 "use client";
 
 import { useMemo, useRef, useState, useTransition } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArchiveIcon, ArrowLeftIcon, CheckIcon, PlusIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import type { List, ListItem } from "@/db/schema";
-import { addListItem, archiveList, toggleListItem } from "@/lib/lists/actions";
+import { archiveList } from "@/lib/lists/actions";
 import { listDisplayName } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { OfflineLink } from "@/components/offline/offline-link";
+import { useOfflineListSync } from "@/components/list-view/use-offline-list-sync";
 
 export function ListView({
   list,
   initialItems,
+  onBack,
 }: {
   list: List;
   initialItems: ListItem[];
+  /** When set (offline shell), the back control returns to the overview in-app
+   *  instead of routing to /lists. */
+  onBack?: () => void;
 }) {
   const router = useRouter();
-  const [items, setItems] = useState(initialItems);
+  const { items, toggle, addItem } = useOfflineListSync(list, initialItems);
   const [draft, setDraft] = useState("");
   const draftRef = useRef<HTMLInputElement>(null);
   const [, startTransition] = useTransition();
@@ -41,61 +46,27 @@ export function ListView({
     }));
   }, [items]);
 
-  function toggle(item: ListItem) {
-    const next = !item.checked;
-    setItems((prev) =>
-      prev.map((i) => (i.id === item.id ? { ...i, checked: next } : i)),
-    );
-    startTransition(async () => {
-      try {
-        await toggleListItem(item.id, next);
-      } catch (error) {
-        setItems((prev) =>
-          prev.map((i) => (i.id === item.id ? { ...i, checked: !next } : i)),
-        );
-        toast.error(
-          error instanceof Error ? error.message : "Nie udało się zaktualizować",
-        );
-      }
-    });
-  }
-
-  function addItem() {
+  function submitDraft() {
     const value = draft.trim();
     if (!value) return;
-    const tempId = crypto.randomUUID();
-    const maxSort = items.reduce((m, it) => Math.max(m, it.sortOrder), 0);
-    const optimistic: ListItem = {
-      id: tempId,
-      listId: list.id,
-      name: value,
-      storeName: null,
-      checked: false,
-      sortOrder: maxSort + 10,
-    };
-    setItems((prev) => [...prev, optimistic]);
+    addItem(value);
     setDraft("");
     draftRef.current?.focus();
-
-    startTransition(async () => {
-      try {
-        const created = await addListItem(list.id, value);
-        setItems((prev) => prev.map((it) => (it.id === tempId ? created : it)));
-      } catch (error) {
-        setItems((prev) => prev.filter((it) => it.id !== tempId));
-        toast.error(
-          error instanceof Error ? error.message : "Nie udało się dodać pozycji",
-        );
-      }
-    });
   }
 
   function archive() {
+    // Archiving stays online-only: it removes the list from the active set, so
+    // doing it offline would silently diverge from the server.
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      toast.error("Archiwizacja dostępna po połączeniu z siecią");
+      return;
+    }
     startTransition(async () => {
       try {
         await archiveList(list.id);
         toast.success("Lista zarchiwizowana");
-        router.push("/lists");
+        if (onBack) onBack();
+        else router.push("/lists");
       } catch (error) {
         toast.error(
           error instanceof Error
@@ -108,13 +79,24 @@ export function ListView({
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-6 md:px-6">
-      <Link
-        href="/lists"
-        className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-      >
-        <ArrowLeftIcon className="size-4" />
-        Listy
-      </Link>
+      {onBack ? (
+        <button
+          type="button"
+          onClick={onBack}
+          className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <ArrowLeftIcon className="size-4" />
+          Listy
+        </button>
+      ) : (
+        <OfflineLink
+          href="/lists"
+          className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <ArrowLeftIcon className="size-4" />
+          Listy
+        </OfflineLink>
+      )}
 
       <header className="mb-6 flex items-start justify-between gap-4">
         <div className="min-w-0">
@@ -186,7 +168,7 @@ export function ListView({
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
-                  addItem();
+                  submitDraft();
                 }
               }}
               placeholder="Dodaj produkt…"

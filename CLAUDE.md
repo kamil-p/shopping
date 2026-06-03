@@ -107,15 +107,19 @@ publicly with no auth change.
 
 ## Deployment
 
-Deployed via Docker to a **Mikrus** VPS. One command does everything:
+Deployed via Docker to a **Mikrus** VPS. Local-only ops scripts (deploy/backup/restore) live in
+`ops/` — they run from your machine and are kept out of rsync. (The `.ts` provisioning tooling in
+`scripts/`, e.g. `create-user`/`seed`, still ships — it's needed in the image.) One command does
+everything:
 
 ```bash
-./deploy.sh   # rsync sources → SSH → docker compose up -d --build → health-check /login
+./ops/deploy.sh   # rsync sources → SSH → docker compose up -d --build → health-check /login
 ```
 
-The 5 config vars (host, remote dir, port) live at the top of `deploy.sh`; the SSH host
+The 5 config vars (host, remote dir, port) live at the top of `ops/deploy.sh`; the SSH host
 `mikrus` is a `~/.ssh/config` alias. `rsync` uses `--exclude-from rsync-exclude.txt`, which
-excludes `data/` and `.env` — **a deploy never overwrites the production DB or env file.**
+excludes `data/`, `backups/`, `ops/` and `.env` — **a deploy never overwrites the production
+DB or env file, and the local-only ops scripts aren't shipped.**
 
 Non-obvious choices baked into the Docker files (don't "fix" these):
 
@@ -131,6 +135,32 @@ Non-obvious choices baked into the Docker files (don't "fix" these):
 - **`./data:/app/data` volume** — keeps the SQLite DB on the host, surviving container rebuilds.
 - **`docker-entrypoint.sh` runs `pnpm db:migrate` then `next start -H :: -p $PORT`** —
   migrations apply automatically on every container start.
+
+### Backups
+
+Two self-contained scripts in `ops/` (same config/style as `deploy.sh`), each taking a
+`local`/`server` target. Backups land in `backups/` — git-ignored, so they never reach the repo
+(and `backups/` is in `rsync-exclude.txt`, so they're never pushed to the VPS).
+
+```bash
+./ops/backup.sh local    # snapshot of the local data/app.db → backups/shopping-app-local-<ts>.db.gz
+./ops/backup.sh server   # snapshot of the prod DB on the VPS, pulled down to backups/
+./ops/restore.sh local   # restore newest backup into local data/app.db (pass a file to pick one)
+./ops/restore.sh server  # restore a backup onto the VPS
+```
+
+Non-obvious choices:
+
+- **`sqlite3 .backup`, not a file copy** — uses SQLite's online backup API, so the snapshot is
+  consistent even while the app writes (captures committed WAL content). libsql files are plain
+  SQLite3, so the stock `sqlite3` reads them; it's auto-installed via `apt` on the VPS if missing.
+- **No retention** — every backup is kept; prune `backups/` by hand.
+- **Backups are origin-tagged but interchangeable** — any `.db.gz` restores to either target
+  (e.g. restore a `server` backup into `local` to debug prod data).
+- **`restore.sh` is destructive** — it prompts for a literal `tak`, saves a `*.pre-restore-<ts>`
+  copy of the current DB first, and clears stale `-wal`/`-shm` files. `server` restore stops the
+  container, swaps the DB, `up -d`, then health-checks `/login`; `local` restore expects `pnpm dev`
+  stopped.
 
 ## Test user credentials
 
