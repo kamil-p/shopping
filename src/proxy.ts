@@ -2,11 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { SESSION_COOKIE_NAME } from "@/lib/auth/constants";
 
-// /offline is the service worker's navigation fallback shell. It must precache
-// cleanly (a 200, never a login redirect) and render even when logged out, so
-// it bypasses the cookie gate. It carries no server data — it reads the local
-// IndexedDB mirror on the client.
-const PUBLIC_PATHS = ["/login", "/offline"];
+const PUBLIC_PATHS = ["/login"];
 
 /**
  * First line of defense: a lightweight cookie-presence check that redirects

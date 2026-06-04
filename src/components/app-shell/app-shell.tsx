@@ -8,6 +8,8 @@ import { logout } from "@/lib/auth/actions";
 
 import { NavLinks } from "./nav-links";
 import { InstallButton } from "@/components/install-button";
+import { OfflineBanner } from "@/components/offline/offline-banner";
+import { APP_VERSION } from "@/lib/version";
 
 function BrandMark() {
   return (
@@ -92,6 +94,7 @@ export function AppShell({
         <div className="zk-brand">
           <BrandMark />
           <span className="zk-brand-name">Zakupy</span>
+          <span className="zk-brand-version">v{APP_VERSION}</span>
         </div>
         <span className="zk-spacer" />
         <InstallButton />
@@ -113,6 +116,7 @@ export function AppShell({
           <div className="zk-drawer-brand">
             <BrandMark />
             <span className="zk-brand-name">Zakupy</span>
+            <span className="zk-brand-version">v{APP_VERSION}</span>
           </div>
           <div className="zk-drawer-user">
             <span className="zk-avatar-lg">{initial}</span>
@@ -136,6 +140,7 @@ export function AppShell({
         </div>
       </aside>
 
+      <OfflineBanner />
       {children}
     </div>
   );

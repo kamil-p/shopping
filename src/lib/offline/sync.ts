@@ -1,88 +1,100 @@
 /**
- * Sync bridge between the offline mirror (IndexedDB) and the server.
- *
- * Order matters: always FLUSH local changes before PULLing a fresh snapshot, so
- * a pull never overwrites edits that haven't reached the server yet.
- *
- * Replay goes through the existing Server Actions (`toggleListItem`,
- * `addListItem`) — no REST layer — and the `session` cookie rides along
- * automatically. Browser-only.
+ * Sync bridge between the IndexedDB mirror and the server. Always PUSH local
+ * changes before PULLing the server's, so a pull never overwrites an edit that
+ * hasn't reached the server yet. Reconciliation is per-row last-write-wins by
+ * `updatedAt`. Browser-only — calls the `@/lib/sync` Server Actions, which carry
+ * the session cookie automatically.
  */
+import { pullChanges, pushChanges } from "@/lib/sync/actions";
+import { SYNC_TABLES, emptyPayload } from "@/lib/sync/shared";
 import {
-  addListItem,
-  getActiveListsSnapshot,
-  toggleListItem,
-} from "@/lib/lists/actions";
-import {
-  deleteOutboxEntry,
-  getOutbox,
-  putSnapshot,
-  remapItemId,
+  clearDirty,
+  deleteRow,
+  getDirty,
+  getMeta,
+  getRow,
+  putRow,
   setMeta,
-  type OutboxEntry,
 } from "@/lib/offline/db";
 
 function isOnline(): boolean {
   return typeof navigator === "undefined" ? true : navigator.onLine;
 }
 
-let flushing = false;
+function timeOf(value: Date | null): number {
+  return value ? value.getTime() : 0;
+}
+
+let syncing = false;
 
 /**
- * Replay every queued mutation in order. Stops early on the first network-like
- * error (the entry stays queued and is retried on the next trigger). Returns
- * true if at least one entry was drained (so callers can refresh their view).
+ * Replay every locally-changed row to the server. Markers clear on success;
+ * rows the server rejected (validation) stay queued. Returns true if anything
+ * was sent.
  */
-export async function flushOutbox(): Promise<boolean> {
-  if (flushing || !isOnline()) return false;
-  flushing = true;
-  let drained = false;
-  try {
-    const entries = await getOutbox();
-    for (const entry of entries) {
-      try {
-        await replay(entry);
-        await deleteOutboxEntry(entry.seq);
-        drained = true;
-      } catch {
-        // Likely offline again / transient — keep this and the rest queued.
-        break;
+export async function pushLocal(): Promise<boolean> {
+  if (!isOnline()) return false;
+  const dirty = await getDirty();
+  if (dirty.length === 0) return false;
+
+  const payload = emptyPayload();
+  for (const marker of dirty) {
+    const row = await getRow(marker.table, marker.id);
+    if (row) (payload[marker.table] as unknown[]).push(row);
+  }
+
+  const { rejected } = await pushChanges(payload);
+  const rejectedIds = new Set(rejected);
+  await clearDirty(
+    dirty.filter((m) => !rejectedIds.has(m.id)).map((m) => m.key),
+  );
+  return true;
+}
+
+/**
+ * Pull the server's changes since the last cursor and merge them per-row by
+ * last-write-wins, never clobbering a row that's still dirty locally. A pulled
+ * tombstone drops the row from the mirror.
+ */
+export async function pullRemote(): Promise<boolean> {
+  if (!isOnline()) return false;
+  const since = await getMeta<number>("lastSyncedAt");
+  const { rows, serverTime } = await pullChanges(since);
+
+  const dirty = new Set((await getDirty()).map((m) => m.key));
+  for (const table of SYNC_TABLES) {
+    for (const row of rows[table] ?? []) {
+      const key = `${table}:${row.id}`;
+      if (dirty.has(key)) continue; // unsynced local edit wins until pushed
+      const existing = await getRow(table, row.id);
+      if (existing && timeOf(row.updatedAt) < timeOf(existing.updatedAt)) {
+        continue; // local copy is newer
+      }
+      if (row.deletedAt != null) {
+        if (existing) await deleteRow(table, row.id);
+      } else {
+        await putRow(table, row);
       }
     }
-  } finally {
-    flushing = false;
   }
-  return drained;
-}
 
-async function replay(entry: OutboxEntry): Promise<void> {
-  if (entry.kind === "toggle") {
-    await toggleListItem(entry.itemId, entry.checked);
-    return;
-  }
-  // addItem: create on the server, then promote the optimistic temp id to the
-  // real row everywhere (mirror + any queued toggles that referenced it).
-  const created = await addListItem(entry.listId, entry.name);
-  await remapItemId(entry.tempId, created);
-}
-
-/** Pull a fresh server snapshot into the mirror (call AFTER flushOutbox). */
-export async function pullSnapshot(): Promise<void> {
-  if (!isOnline()) return;
-  const snapshot = await getActiveListsSnapshot();
-  await putSnapshot(snapshot);
-  await setMeta("lastSyncedAt", Date.now());
+  await setMeta("lastSyncedAt", serverTime);
+  return true;
 }
 
 /**
- * Full reconcile: drain the outbox, then refresh the local mirror. Safe to call
- * on app start, on `online`, and on tab focus. No-ops gracefully when offline.
+ * Full reconcile: push then pull. Safe to call on app start, on `online`, and on
+ * tab focus; no-ops gracefully when offline (the dirty queue is durable).
  */
 export async function syncNow(): Promise<void> {
+  if (syncing) return;
+  syncing = true;
   try {
-    await flushOutbox();
-    await pullSnapshot();
+    await pushLocal();
+    await pullRemote();
   } catch {
-    // Offline or auth bounce — the outbox is durable, we'll retry next trigger.
+    // Offline / auth bounce / transient — local state stands, retry next trigger.
+  } finally {
+    syncing = false;
   }
 }

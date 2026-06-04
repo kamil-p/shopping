@@ -1,15 +1,26 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArchiveIcon, ArrowLeftIcon, CheckIcon, PlusIcon } from "lucide-react";
+import { ArrowLeftIcon, CheckCheckIcon, CheckIcon, PlusIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import type { List, ListItem } from "@/db/schema";
-import { archiveList } from "@/lib/lists/actions";
+import { softDeleteLocal } from "@/lib/offline/db";
+import { pushLocal } from "@/lib/offline/sync";
 import { listDisplayName } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { OfflineLink } from "@/components/offline/offline-link";
 import { useOfflineListSync } from "@/components/list-view/use-offline-list-sync";
 
@@ -28,7 +39,7 @@ export function ListView({
   const { items, toggle, addItem } = useOfflineListSync(list, initialItems);
   const [draft, setDraft] = useState("");
   const draftRef = useRef<HTMLInputElement>(null);
-  const [, startTransition] = useTransition();
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const checkedCount = items.filter((i) => i.checked).length;
 
@@ -54,27 +65,14 @@ export function ListView({
     draftRef.current?.focus();
   }
 
-  function archive() {
-    // Archiving stays online-only: it removes the list from the active set, so
-    // doing it offline would silently diverge from the server.
-    if (typeof navigator !== "undefined" && !navigator.onLine) {
-      toast.error("Archiwizacja dostępna po połączeniu z siecią");
-      return;
-    }
-    startTransition(async () => {
-      try {
-        await archiveList(list.id);
-        toast.success("Lista zarchiwizowana");
-        if (onBack) onBack();
-        else router.push("/lists");
-      } catch (error) {
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : "Nie udało się zarchiwizować",
-        );
-      }
-    });
+  function finish() {
+    // Works offline: soft-delete locally (the row vanishes from the UI) and
+    // queue it; the server hard-purges the tombstone after the sync window.
+    setConfirmOpen(false);
+    void softDeleteLocal("lists", list.id).then(() => void pushLocal());
+    toast.success("Zakupy zakończone");
+    if (onBack) onBack();
+    else router.push("/lists");
   }
 
   return (
@@ -107,10 +105,29 @@ export function ListView({
             {checkedCount}/{items.length} odhaczonych
           </p>
         </div>
-        <Button variant="outline" onClick={archive}>
-          <ArchiveIcon />
-          Zarchiwizuj
-        </Button>
+        <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+          <DialogTrigger render={<Button variant="outline" />}>
+            <CheckCheckIcon />
+            Zakończ zakupy
+          </DialogTrigger>
+          <DialogContent showCloseButton={false}>
+            <DialogHeader>
+              <DialogTitle>Zakończyć listę?</DialogTitle>
+              <DialogDescription>
+                Lista „{listDisplayName(list.name)}” zostanie trwale usunięta.
+                Nie można tego cofnąć.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <DialogClose render={<Button variant="outline" />}>
+                Anuluj
+              </DialogClose>
+              <Button variant="destructive" onClick={finish}>
+                Zakończ i usuń
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </header>
 
       <div className="space-y-5">

@@ -1,23 +1,12 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useCallback, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { ArrowLeftIcon, ArrowRightIcon, PlusIcon, XIcon } from "lucide-react";
-import { toast } from "sonner";
 
 import type { Set, SetItem, Store } from "@/db/schema";
-import {
-  addSetItem,
-  deleteSetItem,
-  renameSet,
-  renameSetItem,
-  reorderSetItems,
-  setDefaultStore,
-  setItemStore,
-  setSetIcon,
-} from "@/lib/sets/actions";
-import { addStore } from "@/lib/stores/actions";
+import { saveLocal, softDeleteLocal } from "@/lib/offline/db";
+import { pushLocal } from "@/lib/offline/sync";
 import { produkty } from "@/lib/format";
 import {
   Popover,
@@ -81,8 +70,8 @@ export function SetEditor({
   initialItems: SetItem[];
   initialStores: Store[];
 }) {
-  const router = useRouter();
-  const [, startTransition] = useTransition();
+  const userId = set.userId;
+  const currentSet = useRef<Set>(set);
 
   const [name, setName] = useState(set.name);
   const committedName = useRef(set.name);
@@ -99,16 +88,24 @@ export function SetEditor({
 
   const defaultStore = stores.find((s) => s.id === defaultStoreId);
 
-  function run(fn: () => Promise<unknown>, message: string) {
-    startTransition(async () => {
-      try {
-        await fn();
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : message);
-        router.refresh();
-      }
-    });
-  }
+  // Persist a set-level change to the mirror and queue it for the next sync.
+  const persistSet = useCallback((patch: Partial<Set>) => {
+    const updated: Set = {
+      ...currentSet.current,
+      ...patch,
+      updatedAt: new Date(),
+    };
+    currentSet.current = updated;
+    void saveLocal("sets", updated).then(() => void pushLocal());
+  }, []);
+
+  // Persist already-stamped item rows to the mirror and queue for sync.
+  const persistItems = useCallback((rows: SetItem[]) => {
+    void (async () => {
+      for (const row of rows) await saveLocal("setItems", row);
+      void pushLocal();
+    })();
+  }, []);
 
   function commitName() {
     const next = name.trim();
@@ -119,84 +116,82 @@ export function SetEditor({
     if (next === committedName.current) return;
     committedName.current = next;
     setName(next);
-    run(() => renameSet(set.id, next), "Nie udało się zmienić nazwy");
+    persistSet({ name: next });
   }
 
   function pickIcon(emoji: string) {
     setIcon(emoji);
-    run(() => setSetIcon(set.id, emoji), "Nie udało się zmienić ikony");
+    persistSet({ icon: emoji });
   }
 
   function chooseDefaultStore(storeId: string | null) {
     setDefaultStoreId(storeId);
-    run(() => setDefaultStore(set.id, storeId), "Nie udało się ustawić sklepu");
+    persistSet({ defaultStoreId: storeId });
   }
 
   async function createStore(input: { name: string; url?: string }) {
-    const store = await addStore(input);
+    const now = new Date();
+    const store: Store = {
+      id: crypto.randomUUID(),
+      userId,
+      name: input.name.trim().slice(0, 80),
+      url: input.url?.trim() ? input.url.trim().slice(0, 500) : null,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    };
     setStores((prev) =>
       [...prev, store].sort((a, b) => a.name.localeCompare(b.name, "pl")),
     );
+    await saveLocal("stores", store);
+    void pushLocal();
     return store;
   }
 
   function addProduct() {
     const value = draft.trim();
     if (!value) return;
-    const tempId = crypto.randomUUID();
+    const now = new Date();
     const maxSort = items.reduce((m, it) => Math.max(m, it.sortOrder), 0);
-    const optimistic: SetItem = {
-      id: tempId,
+    const item: SetItem = {
+      id: crypto.randomUUID(),
       setId: set.id,
-      name: value,
+      name: value.slice(0, 120),
       storeId: null,
       sortOrder: maxSort + 10,
-      createdAt: new Date(),
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
     };
-    setItems((prev) => [...prev, optimistic]);
+    setItems((prev) => [...prev, item]);
     setDraft("");
     draftRef.current?.focus();
-
-    startTransition(async () => {
-      try {
-        const created = await addSetItem(set.id, value);
-        setItems((prev) => prev.map((it) => (it.id === tempId ? created : it)));
-      } catch (error) {
-        setItems((prev) => prev.filter((it) => it.id !== tempId));
-        toast.error(
-          error instanceof Error ? error.message : "Nie udało się dodać produktu",
-        );
-      }
-    });
+    persistItems([item]);
   }
 
   function renameProduct(id: string, value: string) {
-    setItems((prev) =>
-      prev.map((it) => (it.id === id ? { ...it, name: value } : it)),
-    );
-    run(() => renameSetItem(id, value), "Nie udało się zmienić nazwy");
+    const target = items.find((it) => it.id === id);
+    if (!target) return;
+    const updated: SetItem = {
+      ...target,
+      name: value.slice(0, 120),
+      updatedAt: new Date(),
+    };
+    setItems((prev) => prev.map((it) => (it.id === id ? updated : it)));
+    persistItems([updated]);
   }
 
   function changeProductStore(id: string, storeId: string | null) {
-    setItems((prev) =>
-      prev.map((it) => (it.id === id ? { ...it, storeId } : it)),
-    );
-    run(() => setItemStore(id, storeId), "Nie udało się zmienić sklepu");
+    const target = items.find((it) => it.id === id);
+    if (!target) return;
+    const updated: SetItem = { ...target, storeId, updatedAt: new Date() };
+    setItems((prev) => prev.map((it) => (it.id === id ? updated : it)));
+    persistItems([updated]);
   }
 
   function deleteProduct(id: string) {
-    const snapshot = items;
     setItems((prev) => prev.filter((it) => it.id !== id));
-    startTransition(async () => {
-      try {
-        await deleteSetItem(id);
-      } catch (error) {
-        setItems(snapshot);
-        toast.error(
-          error instanceof Error ? error.message : "Nie udało się usunąć produktu",
-        );
-      }
-    });
+    void softDeleteLocal("setItems", id).then(() => void pushLocal());
   }
 
   function moveProduct(index: number, direction: -1 | 1) {
@@ -204,15 +199,22 @@ export function SetEditor({
     if (target < 0 || target >= items.length) return;
     const next = [...items];
     [next[index], next[target]] = [next[target], next[index]];
-    setItems(next);
     persistOrder(next);
   }
 
+  // Renumber to the server's (i+1)*10 scheme; write only the rows that moved.
   function persistOrder(ordered: SetItem[]) {
-    run(
-      () => reorderSetItems(set.id, ordered.map((it) => it.id)),
-      "Nie udało się zmienić kolejności",
-    );
+    const now = new Date();
+    const changed: SetItem[] = [];
+    const renumbered = ordered.map((it, i) => {
+      const sortOrder = (i + 1) * 10;
+      if (it.sortOrder === sortOrder) return it;
+      const updated = { ...it, sortOrder, updatedAt: now };
+      changed.push(updated);
+      return updated;
+    });
+    setItems(renumbered);
+    if (changed.length) persistItems(changed);
   }
 
   function dragStart(id: string) {

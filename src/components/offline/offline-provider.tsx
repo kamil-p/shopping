@@ -1,35 +1,45 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
 
+import { readAllLists, readAllSets } from "@/lib/offline/db";
 import { syncNow } from "@/lib/offline/sync";
 
 /**
  * Boots the offline layer for logged-in users: registers the service worker
- * (production only — in dev it would cache Turbopack HMR chunks) and keeps the
- * IndexedDB mirror warm + the outbox drained on load, on reconnect, and on tab
- * focus. Mounted inside the (protected) layout so it never runs on /login and
- * the snapshot pull always has a session cookie.
+ * (production only — in dev it would cache Turbopack HMR chunks), keeps the
+ * IndexedDB mirror warm + the outbox drained on load / reconnect / focus, and
+ * tells the SW to precache the list route documents so every active list opens
+ * offline (even ones not visited this session). Mounted inside the (protected)
+ * layout so it never runs on /login and the snapshot pull always has a cookie.
  */
 export function OfflineProvider() {
-  const router = useRouter();
-
   useEffect(() => {
-    if (
-      process.env.NODE_ENV === "production" &&
-      "serviceWorker" in navigator
-    ) {
-      navigator.serviceWorker
-        .register("/sw.js", { scope: "/" })
-        .catch(() => {});
+    const swEnabled =
+      process.env.NODE_ENV === "production" && "serviceWorker" in navigator;
+    if (swEnabled) {
+      navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
     }
 
-    // Warm the offline shell's route chunks while we still have a network, so
-    // the cache-first SW has them when the shell is served offline.
-    router.prefetch("/offline");
-
-    void syncNow();
+    void (async () => {
+      await syncNow();
+      if (!swEnabled || !navigator.onLine) return;
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        const [lists, sets] = await Promise.all([readAllLists(), readAllSets()]);
+        const urls = [
+          "/",
+          "/lists",
+          "/sets",
+          "/stores",
+          ...lists.map((l) => `/lists/${l.id}`),
+          ...sets.map((s) => `/sets/${s.id}`),
+        ];
+        reg.active?.postMessage({ type: "warm", urls });
+      } catch {
+        // SW not ready / unsupported — natural navigation caching still applies.
+      }
+    })();
 
     const onOnline = () => void syncNow();
     const onVisible = () => {
@@ -41,8 +51,6 @@ export function OfflineProvider() {
       window.removeEventListener("online", onOnline);
       document.removeEventListener("visibilitychange", onVisible);
     };
-    // Run once on mount; `router` is stable.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return null;

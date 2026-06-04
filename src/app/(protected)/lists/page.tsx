@@ -1,12 +1,39 @@
-import { requireUser } from "@/lib/auth/require-user";
-import { listActiveLists } from "@/lib/lists/queries";
+"use client";
+
+import { useEffect, useState } from "react";
+
+import { readAllLists, type ListSummary } from "@/lib/offline/db";
+import { syncNow } from "@/lib/offline/sync";
 import { formatListDate, listDisplayName } from "@/lib/format";
 import { Card } from "@/components/ui/card";
 import { OfflineLink } from "@/components/offline/offline-link";
 
-export default async function ListyPage() {
-  const user = await requireUser();
-  const lists = await listActiveLists(user.id);
+/**
+ * Local-first overview. Reads the lists (with progress counts) from the
+ * IndexedDB mirror so it renders instantly and works offline with fresh counts
+ * after offline check-offs; when online it syncs and re-reads.
+ */
+export default function ListyPage() {
+  const [lists, setLists] = useState<ListSummary[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      const local = await readAllLists();
+      if (!cancelled) setLists(local);
+
+      const online = typeof navigator === "undefined" ? true : navigator.onLine;
+      if (online) {
+        await syncNow();
+        if (!cancelled) setLists(await readAllLists());
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-6 md:px-6">
@@ -14,7 +41,7 @@ export default async function ListyPage() {
         Aktywne listy zakupów
       </h1>
 
-      {lists.length === 0 ? (
+      {lists === null ? null : lists.length === 0 ? (
         <Card className="p-10 text-center">
           <p className="text-sm text-muted-foreground">
             Brak aktywnych list. Utwórz listę z zestawu, klikając „Zrób listę
@@ -24,7 +51,8 @@ export default async function ListyPage() {
       ) : (
         <div className="space-y-2">
           {lists.map((list) => {
-            const done = list.itemCount > 0 && list.checkedCount === list.itemCount;
+            const done =
+              list.itemCount > 0 && list.checkedCount === list.itemCount;
             return (
               <OfflineLink
                 key={list.id}

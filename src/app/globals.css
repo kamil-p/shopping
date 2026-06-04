@@ -232,6 +232,16 @@
   font-size: 19px;
   letter-spacing: -0.02em;
 }
+.zk-brand-version {
+  margin-left: -4px;
+  align-self: flex-end;
+  padding-bottom: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0;
+  color: var(--muted-foreground);
+}
 .zk-spacer {
   flex: 1;
 }

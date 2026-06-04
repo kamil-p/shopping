@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ShoppingCartIcon } from "lucide-react";
 import { toast } from "sonner";
 
-import { createListFromSet } from "@/lib/lists/actions";
+import { createListFromMirror } from "@/lib/offline/make-list";
+import { useUserId } from "@/components/offline/user-context";
 import { produkty } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,9 +37,10 @@ export function MakeListDialog({
   itemCount: number;
 }) {
   const router = useRouter();
+  const userId = useUserId();
   const [open, setOpen] = useState(false);
   const [name, setName_] = useState("");
-  const [pending, startTransition] = useTransition();
+  const [pending, setPending] = useState(false);
 
   function handleOpenChange(next: boolean) {
     setOpen(next);
@@ -46,20 +48,18 @@ export function MakeListDialog({
   }
 
   function create() {
-    startTransition(async () => {
-      try {
-        const { id } = await createListFromSet(setId, name.trim() || undefined);
-        toast.success("Utworzono listę zakupów");
-        setOpen(false);
-        router.push(`/lists/${id}`);
-      } catch (error) {
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : "Nie udało się utworzyć listy",
-        );
+    setPending(true);
+    void (async () => {
+      const id = await createListFromMirror(setId, userId, name.trim() || undefined);
+      setPending(false);
+      if (!id) {
+        toast.error("Nie udało się utworzyć listy");
+        return;
       }
-    });
+      toast.success("Utworzono listę zakupów");
+      setOpen(false);
+      router.push(`/lists/${id}`);
+    })();
   }
 
   return (

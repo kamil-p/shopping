@@ -105,6 +105,17 @@ publicly with no auth change.
   by both the login action and the create-user script; emails are normalized (trim +
   lowercase) before any DB lookup.
 
+## Versioning
+
+The app version is shown in smaller, muted type next to the "Zakupy" brand name (both the
+top bar and the mobile drawer) in `src/components/app-shell/app-shell.tsx`. The single source
+of truth is `APP_VERSION` in `src/lib/version.ts` (currently `0.0.0`), kept in sync with the
+`"version"` field in `package.json`.
+
+**Bump the version with every commit.** Increment `APP_VERSION` in `src/lib/version.ts` (and
+the matching `package.json` `"version"`) as part of each commit — patch by default
+(0.0.0 → 0.0.1), minor/major at your discretion for larger changes.
+
 ## Deployment
 
 Deployed via Docker to a **Mikrus** VPS. Local-only ops scripts (deploy/backup/restore) live in

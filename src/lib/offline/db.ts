@@ -1,40 +1,39 @@
 /**
- * Offline mirror of the shopping lists, stored in IndexedDB.
+ * Offline mirror of the whole shopping domain (stores, sets, set items, lists,
+ * list items), stored in IndexedDB. This is the source of truth WHILE OFFLINE:
+ * every screen renders from here and every edit lands here first, then reconciles
+ * with the server through the last-write-wins engine in `@/lib/sync` (see
+ * `./sync.ts`). The stored shapes are exactly the Drizzle row types, so a `Date`
+ * survives the structured clone and rows render with no conversion.
  *
- * This is the source of truth WHILE OFFLINE: the lists pages render from here
- * and writes (toggle / add item) land here first, then get replayed to the
- * server from the outbox once the network returns (see ./sync.ts).
- *
- * The stored shapes are exactly the Drizzle `List` / `ListItem` row types, so
- * they render in <ListView> with no conversion (a `Date` survives the
- * IndexedDB structured clone).
- *
- * Browser-only — every export touches `indexedDB` and must be called from
- * client components / effects, never during SSR.
+ * Browser-only — every export touches `indexedDB`; call from client components.
  */
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 
-import type { List, ListItem } from "@/db/schema";
+import type { List, ListItem, Set, SetItem, Store } from "@/db/schema";
+import { type SyncRow, type SyncTableName } from "@/lib/sync/shared";
 
-/** A pending mutation waiting to be replayed against the server. */
-export type OutboxOp =
-  | { kind: "toggle"; itemId: string; checked: boolean }
-  | { kind: "addItem"; tempId: string; listId: string; name: string };
+export type { SyncTableName };
 
-export type OutboxEntry = OutboxOp & { seq: number };
-
-/** A list plus the progress counts the overview shows (mirrors ListSummary). */
+/** A list plus the progress counts the overview shows. */
 export type ListSummary = List & { itemCount: number; checkedCount: number };
+/** A set plus its product count. */
+export type SetSummary = Set & { itemCount: number };
+
+type DirtyMarker = { key: string; table: SyncTableName; id: string };
 
 interface ShoppingDB extends DBSchema {
+  stores: { key: string; value: Store };
+  sets: { key: string; value: Set };
+  setItems: { key: string; value: SetItem; indexes: { bySet: string } };
   lists: { key: string; value: List };
   listItems: { key: string; value: ListItem; indexes: { byList: string } };
   meta: { key: string; value: unknown };
-  outbox: { key: number; value: OutboxEntry };
+  dirty: { key: string; value: DirtyMarker };
 }
 
 const DB_NAME = "zakupy-offline";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 let dbPromise: Promise<IDBPDatabase<ShoppingDB>> | null = null;
 
@@ -45,71 +44,166 @@ function getDb(): Promise<IDBPDatabase<ShoppingDB>> {
   if (!dbPromise) {
     dbPromise = openDB<ShoppingDB>(DB_NAME, DB_VERSION, {
       upgrade(db) {
+        // v1 had only lists/listItems/meta/outbox (intent queue). Drop the old
+        // stores so the next sync repopulates fresh rows with timestamps.
+        const raw = db as unknown as IDBPDatabase;
+        for (const name of ["outbox", "lists", "listItems", "meta"]) {
+          if (raw.objectStoreNames.contains(name)) raw.deleteObjectStore(name);
+        }
+        db.createObjectStore("stores", { keyPath: "id" });
+        db.createObjectStore("sets", { keyPath: "id" });
+        db.createObjectStore("setItems", { keyPath: "id" }).createIndex(
+          "bySet",
+          "setId",
+        );
         db.createObjectStore("lists", { keyPath: "id" });
-        const items = db.createObjectStore("listItems", { keyPath: "id" });
-        items.createIndex("byList", "listId");
+        db.createObjectStore("listItems", { keyPath: "id" }).createIndex(
+          "byList",
+          "listId",
+        );
         db.createObjectStore("meta");
-        db.createObjectStore("outbox", { keyPath: "seq", autoIncrement: true });
+        db.createObjectStore("dirty", { keyPath: "key" });
       },
     });
   }
   return dbPromise;
 }
 
-// --- Snapshot / seeding (online → local mirror) ---
+// --- Generic row access (used by the sync engine) ---
 
-/**
- * Replace the entire mirror with a fresh server snapshot of all active lists.
- * Call this only AFTER the outbox has been flushed, so a pull never clobbers
- * unsynced local changes.
- */
-export async function putSnapshot(
-  snapshot: { lists: List[]; items: ListItem[] },
+export async function getAllRows<K extends SyncTableName>(
+  table: K,
+): Promise<SyncRow[K][]> {
+  const db = await getDb();
+  return (await db.getAll(table)) as SyncRow[K][];
+}
+
+export async function getRow<K extends SyncTableName>(
+  table: K,
+  id: string,
+): Promise<SyncRow[K] | undefined> {
+  const db = await getDb();
+  return (await db.get(table, id)) as SyncRow[K] | undefined;
+}
+
+export async function putRow<K extends SyncTableName>(
+  table: K,
+  row: SyncRow[K],
 ): Promise<void> {
   const db = await getDb();
-  const tx = db.transaction(["lists", "listItems"], "readwrite");
-  await tx.objectStore("lists").clear();
-  await tx.objectStore("listItems").clear();
-  const lists = tx.objectStore("lists");
-  const items = tx.objectStore("listItems");
-  for (const list of snapshot.lists) void lists.put(list);
-  for (const item of snapshot.items) void items.put(item);
+  await db.put(table, row as never);
+}
+
+export async function deleteRow(
+  table: SyncTableName,
+  id: string,
+): Promise<void> {
+  const db = await getDb();
+  await db.delete(table, id);
+}
+
+// --- Dirty markers (rows changed locally, awaiting push) ---
+
+export async function markDirty(
+  table: SyncTableName,
+  id: string,
+): Promise<void> {
+  const db = await getDb();
+  await db.put("dirty", { key: `${table}:${id}`, table, id });
+}
+
+export async function getDirty(): Promise<DirtyMarker[]> {
+  const db = await getDb();
+  return db.getAll("dirty");
+}
+
+export async function clearDirty(keys: string[]): Promise<void> {
+  if (keys.length === 0) return;
+  const db = await getDb();
+  const tx = db.transaction("dirty", "readwrite");
+  for (const key of keys) void tx.store.delete(key);
   await tx.done;
+}
+
+// --- Meta (sync watermark) ---
+
+export async function getMeta<T>(key: string): Promise<T | undefined> {
+  const db = await getDb();
+  return (await db.get("meta", key)) as T | undefined;
+}
+
+export async function setMeta(key: string, value: unknown): Promise<void> {
+  const db = await getDb();
+  await db.put("meta", value, key);
+}
+
+// --- Optimistic local writes (callers stamp updatedAt before calling) ---
+
+/** Persist a locally-edited row and queue it for the next push. */
+export async function saveLocal<K extends SyncTableName>(
+  table: K,
+  row: SyncRow[K],
+): Promise<void> {
+  await putRow(table, row);
+  await markDirty(table, (row as { id: string }).id);
+}
+
+/** Soft-delete: stamp `deletedAt`/`updatedAt`, persist, and queue for push. */
+export async function softDeleteLocal(
+  table: SyncTableName,
+  id: string,
+): Promise<void> {
+  const row = await getRow(table, id);
+  if (!row) return;
+  const now = new Date();
+  (row as { deletedAt: Date | null }).deletedAt = now;
+  (row as { updatedAt: Date }).updatedAt = now;
+  await putRow(table, row);
+  await markDirty(table, id);
 }
 
 /**
- * Write-through one list and its items (used when a list is opened online), so
- * it is available offline later. Replaces just this list's items, leaving the
- * rest of the mirror untouched.
+ * Clear every reference to a (just deleted) store: null `defaultStoreId` on sets
+ * and `storeId` on set items that point at it, queuing those rows for sync.
+ * Lists are unaffected — they snapshot the store name as plain text.
  */
-export async function seedList(list: List, items: ListItem[]): Promise<void> {
-  const db = await getDb();
-  const tx = db.transaction(["lists", "listItems"], "readwrite");
-  void tx.objectStore("lists").put(list);
-  const store = tx.objectStore("listItems");
-  const existing = await store.index("byList").getAllKeys(list.id);
-  for (const key of existing) void store.delete(key);
-  for (const item of items) void store.put(item);
-  await tx.done;
+export async function nullStoreReferences(storeId: string): Promise<void> {
+  const now = new Date();
+  for (const set of await getAllRows("sets")) {
+    if (set.defaultStoreId === storeId) {
+      await saveLocal("sets", { ...set, defaultStoreId: null, updatedAt: now });
+    }
+  }
+  for (const item of await getAllRows("setItems")) {
+    if (item.storeId === storeId) {
+      await saveLocal("setItems", { ...item, storeId: null, updatedAt: now });
+    }
+  }
 }
 
-// --- Reads (offline rendering) ---
+// --- Domain reads (mirror the server queries, but from IndexedDB) ---
 
-/** All mirrored lists with progress counts, newest first (mirrors listActiveLists). */
+const alive = <T extends { deletedAt: Date | null }>(r: T) => r.deletedAt == null;
+const byName = (a: { name: string }, b: { name: string }) =>
+  a.name.localeCompare(b.name, "pl");
+
+/** Active lists with progress counts, newest first. */
 export async function readAllLists(): Promise<ListSummary[]> {
   const db = await getDb();
-  const [lists, allItems] = await Promise.all([
+  const [allLists, allItems] = await Promise.all([
     db.getAll("lists"),
     db.getAll("listItems"),
   ]);
   const counts = new Map<string, { itemCount: number; checkedCount: number }>();
   for (const item of allItems) {
+    if (!alive(item)) continue;
     const c = counts.get(item.listId) ?? { itemCount: 0, checkedCount: 0 };
     c.itemCount += 1;
     if (item.checked) c.checkedCount += 1;
     counts.set(item.listId, c);
   }
-  return lists
+  return allLists
+    .filter(alive)
     .map((list) => ({
       ...list,
       itemCount: counts.get(list.id)?.itemCount ?? 0,
@@ -118,87 +212,57 @@ export async function readAllLists(): Promise<ListSummary[]> {
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }
 
-/** One mirrored list with its ordered items (mirrors getListWithItems). */
+/** One list with its ordered items, or null if missing/deleted. */
 export async function readListWithItems(
   listId: string,
 ): Promise<{ list: List; items: ListItem[] } | null> {
   const db = await getDb();
   const list = await db.get("lists", listId);
-  if (!list) return null;
-  const items = await db.getAllFromIndex("listItems", "byList", listId);
-  items.sort((a, b) => a.sortOrder - b.sortOrder);
+  if (!list || !alive(list)) return null;
+  const items = (await db.getAllFromIndex("listItems", "byList", listId))
+    .filter(alive)
+    .sort((a, b) => a.sortOrder - b.sortOrder);
   return { list, items };
 }
 
-// --- Local writes (optimistic, before sync) ---
-
-export async function putListItem(item: ListItem): Promise<void> {
+/** All sets with product counts, alphabetical. */
+export async function readAllSets(): Promise<SetSummary[]> {
   const db = await getDb();
-  await db.put("listItems", item);
-}
-
-// --- Outbox ---
-
-export async function enqueue(op: OutboxOp): Promise<void> {
-  const db = await getDb();
-  // `seq` is an autoincrement inline key — IndexedDB assigns it on add.
-  const entry = op as OutboxEntry;
-  // Coalesce repeated toggles of the same item (last write wins).
-  if (op.kind === "toggle") {
-    const tx = db.transaction("outbox", "readwrite");
-    let cursor = await tx.store.openCursor();
-    while (cursor) {
-      const v = cursor.value;
-      if (v.kind === "toggle" && v.itemId === op.itemId) {
-        await cursor.delete();
-      }
-      cursor = await cursor.continue();
-    }
-    await tx.store.add(entry);
-    await tx.done;
-    return;
+  const [allSets, allItems] = await Promise.all([
+    db.getAll("sets"),
+    db.getAll("setItems"),
+  ]);
+  const counts = new Map<string, number>();
+  for (const item of allItems) {
+    if (!alive(item)) continue;
+    counts.set(item.setId, (counts.get(item.setId) ?? 0) + 1);
   }
-  await db.add("outbox", entry);
+  return allSets
+    .filter(alive)
+    .map((set) => ({ ...set, itemCount: counts.get(set.id) ?? 0 }))
+    .sort(byName);
 }
 
-export async function getOutbox(): Promise<OutboxEntry[]> {
+/** One set with its ordered items and the user's stores, or null if missing/deleted. */
+export async function readSetWithItems(
+  setId: string,
+): Promise<{ set: Set; items: SetItem[]; stores: Store[] } | null> {
   const db = await getDb();
-  const all = await db.getAll("outbox");
-  return all.sort((a, b) => a.seq - b.seq);
+  const set = await db.get("sets", setId);
+  if (!set || !alive(set)) return null;
+  const [items, allStores] = await Promise.all([
+    db.getAllFromIndex("setItems", "bySet", setId),
+    db.getAll("stores"),
+  ]);
+  return {
+    set,
+    items: items.filter(alive).sort((a, b) => a.sortOrder - b.sortOrder),
+    stores: allStores.filter(alive).sort(byName),
+  };
 }
 
-export async function deleteOutboxEntry(seq: number): Promise<void> {
+/** The user's store catalog, alphabetical. */
+export async function readAllStores(): Promise<Store[]> {
   const db = await getDb();
-  await db.delete("outbox", seq);
-}
-
-/**
- * After a queued addItem syncs, the optimistic temp id becomes a real server id.
- * Rewrite any still-queued toggles that referenced the temp id, and remap the
- * mirrored item row to its real id.
- */
-export async function remapItemId(
-  tempId: string,
-  realItem: ListItem,
-): Promise<void> {
-  const db = await getDb();
-  const tx = db.transaction(["listItems", "outbox"], "readwrite");
-  const items = tx.objectStore("listItems");
-  void items.delete(tempId);
-  void items.put(realItem);
-  const outbox = tx.objectStore("outbox");
-  let cursor = await outbox.openCursor();
-  while (cursor) {
-    const v = cursor.value;
-    if (v.kind === "toggle" && v.itemId === tempId) {
-      await cursor.update({ ...v, itemId: realItem.id });
-    }
-    cursor = await cursor.continue();
-  }
-  await tx.done;
-}
-
-export async function setMeta(key: string, value: unknown): Promise<void> {
-  const db = await getDb();
-  await db.put("meta", value, key);
+  return (await db.getAll("stores")).filter(alive).sort(byName);
 }

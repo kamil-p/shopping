@@ -1,16 +1,60 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { PlusIcon } from "lucide-react";
 
-import { requireUser } from "@/lib/auth/require-user";
-import { createSet } from "@/lib/sets/actions";
-import { listSets } from "@/lib/sets/queries";
+import type { Set } from "@/db/schema";
+import { readAllSets, saveLocal, type SetSummary } from "@/lib/offline/db";
+import { pushLocal, syncNow } from "@/lib/offline/sync";
+import { useUserId } from "@/components/offline/user-context";
 import { produkty } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
-export default async function ZestawyPage() {
-  const user = await requireUser();
-  const sets = await listSets(user.id);
+/**
+ * Local-first sets overview. Reads the mirror so it renders instantly and works
+ * offline; "Nowy zestaw" mints a set locally (client UUID) and opens its editor
+ * without needing the network.
+ */
+export default function ZestawyPage() {
+  const router = useRouter();
+  const userId = useUserId();
+  const [sets, setSets] = useState<SetSummary[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const local = await readAllSets();
+      if (!cancelled) setSets(local);
+      const online = typeof navigator === "undefined" ? true : navigator.onLine;
+      if (online) {
+        await syncNow();
+        if (!cancelled) setSets(await readAllSets());
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function createSet() {
+    const now = new Date();
+    const set: Set = {
+      id: crypto.randomUUID(),
+      userId,
+      name: "Nowy zestaw",
+      icon: "🧺",
+      defaultStoreId: null,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    };
+    await saveLocal("sets", set);
+    void pushLocal();
+    router.push(`/sets/${set.id}`);
+  }
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-6 md:px-6">
@@ -18,25 +62,21 @@ export default async function ZestawyPage() {
         <h1 className="font-heading text-2xl font-semibold tracking-tight">
           Zestawy
         </h1>
-        <form action={createSet}>
-          <Button type="submit">
-            <PlusIcon />
-            Nowy zestaw
-          </Button>
-        </form>
+        <Button type="button" onClick={createSet}>
+          <PlusIcon />
+          Nowy zestaw
+        </Button>
       </header>
 
-      {sets.length === 0 ? (
+      {sets === null ? null : sets.length === 0 ? (
         <Card className="flex flex-col items-center gap-3 p-10 text-center">
           <p className="text-sm text-muted-foreground">
             Nie masz jeszcze żadnych zestawów.
           </p>
-          <form action={createSet}>
-            <Button type="submit">
-              <PlusIcon />
-              Utwórz pierwszy zestaw
-            </Button>
-          </form>
+          <Button type="button" onClick={createSet}>
+            <PlusIcon />
+            Utwórz pierwszy zestaw
+          </Button>
         </Card>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">

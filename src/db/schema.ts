@@ -46,6 +46,7 @@ export const stores = sqliteTable(
     updatedAt: integer("updated_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),
+    deletedAt: integer("deleted_at", { mode: "timestamp" }),
   },
   (table) => [index("stores_user_id_idx").on(table.userId)],
 );
@@ -72,6 +73,7 @@ export const sets = sqliteTable(
     updatedAt: integer("updated_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),
+    deletedAt: integer("deleted_at", { mode: "timestamp" }),
   },
   (table) => [index("sets_user_id_idx").on(table.userId)],
 );
@@ -95,6 +97,10 @@ export const setItems = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+    deletedAt: integer("deleted_at", { mode: "timestamp" }),
   },
   (table) => [index("set_items_set_id_idx").on(table.setId)],
 );
@@ -112,17 +118,15 @@ export const lists = sqliteTable(
     // Provenance only — deleting the set must not delete historical lists.
     setId: text("set_id").references(() => sets.id, { onDelete: "set null" }),
     name: text("name").notNull(),
-    status: text("status", { enum: ["active", "archived"] })
-      .notNull()
-      .default("active"),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+    deletedAt: integer("deleted_at", { mode: "timestamp" }),
   },
-  (table) => [
-    index("lists_user_id_idx").on(table.userId),
-    index("lists_status_idx").on(table.status),
-  ],
+  (table) => [index("lists_user_id_idx").on(table.userId)],
 );
 
 // --- List items: denormalized snapshot. storeName is copied as text (no FK) so later
@@ -140,6 +144,13 @@ export const listItems = sqliteTable(
     storeName: text("store_name"),
     checked: integer("checked", { mode: "boolean" }).notNull().default(false),
     sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+    deletedAt: integer("deleted_at", { mode: "timestamp" }),
   },
   (table) => [index("list_items_list_id_idx").on(table.listId)],
 );

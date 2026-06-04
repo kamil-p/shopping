@@ -1,12 +1,17 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { ExternalLinkIcon, PlusIcon, Trash2Icon } from "lucide-react";
-import { toast } from "sonner";
 
 import type { Store } from "@/db/schema";
-import { addStore, deleteStore, renameStore } from "@/lib/stores/actions";
+import {
+  nullStoreReferences,
+  readAllStores,
+  saveLocal,
+  softDeleteLocal,
+} from "@/lib/offline/db";
+import { pushLocal, syncNow } from "@/lib/offline/sync";
+import { useUserId } from "@/components/offline/user-context";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -75,12 +80,32 @@ function StoreRow({
   );
 }
 
-export function StoreCatalog({ initialStores }: { initialStores: Store[] }) {
-  const router = useRouter();
-  const [stores, setStores] = useState(initialStores);
+/**
+ * Local-first store catalog. Reads the mirror so it renders instantly and works
+ * offline; add/rename/delete write locally and queue for sync. Deleting a store
+ * also clears it from any set that referenced it.
+ */
+export function StoreCatalog() {
+  const userId = useUserId();
+  const [stores, setStores] = useState<Store[] | null>(null);
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
-  const [pending, startTransition] = useTransition();
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const local = await readAllStores();
+      if (!cancelled) setStores(local);
+      const online = typeof navigator === "undefined" ? true : navigator.onLine;
+      if (online) {
+        await syncNow();
+        if (!cancelled) setStores(await readAllStores());
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function sorted(list: Store[]) {
     return [...list].sort((a, b) => a.name.localeCompare(b.name, "pl"));
@@ -89,52 +114,38 @@ export function StoreCatalog({ initialStores }: { initialStores: Store[] }) {
   function add() {
     const trimmed = name.trim();
     if (!trimmed) return;
-    startTransition(async () => {
-      try {
-        const store = await addStore({
-          name: trimmed,
-          url: url.trim() || undefined,
-        });
-        setStores((prev) => sorted([...prev, store]));
-        setName("");
-        setUrl("");
-      } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : "Nie udało się dodać sklepu",
-        );
-      }
-    });
+    const now = new Date();
+    const store: Store = {
+      id: crypto.randomUUID(),
+      userId,
+      name: trimmed.slice(0, 80),
+      url: url.trim() ? url.trim().slice(0, 500) : null,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    };
+    setStores((prev) => sorted([...(prev ?? []), store]));
+    setName("");
+    setUrl("");
+    void saveLocal("stores", store).then(() => void pushLocal());
   }
 
   function remove(id: string) {
-    const snapshot = stores;
-    setStores((prev) => prev.filter((s) => s.id !== id));
-    startTransition(async () => {
-      try {
-        await deleteStore(id);
-      } catch (error) {
-        setStores(snapshot);
-        toast.error(
-          error instanceof Error ? error.message : "Nie udało się usunąć sklepu",
-        );
-      }
-    });
+    setStores((prev) => (prev ?? []).filter((s) => s.id !== id));
+    void (async () => {
+      await softDeleteLocal("stores", id);
+      await nullStoreReferences(id);
+      void pushLocal();
+    })();
   }
 
   function rename(id: string, value: string) {
-    setStores((prev) =>
-      sorted(prev.map((s) => (s.id === id ? { ...s, name: value } : s))),
-    );
-    startTransition(async () => {
-      try {
-        await renameStore(id, value);
-      } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : "Nie udało się zmienić nazwy",
-        );
-        router.refresh();
-      }
-    });
+    const list = stores ?? [];
+    const target = list.find((s) => s.id === id);
+    if (!target) return;
+    const updated: Store = { ...target, name: value.slice(0, 80), updatedAt: new Date() };
+    setStores(sorted(list.map((s) => (s.id === id ? updated : s))));
+    void saveLocal("stores", updated).then(() => void pushLocal());
   }
 
   return (
@@ -163,14 +174,14 @@ export function StoreCatalog({ initialStores }: { initialStores: Store[] }) {
             onChange={(e) => setUrl(e.target.value)}
             className="sm:flex-1"
           />
-          <Button onClick={add} disabled={pending || !name.trim()}>
+          <Button onClick={add} disabled={!name.trim()}>
             <PlusIcon />
             Dodaj
           </Button>
         </div>
       </Card>
 
-      {stores.length === 0 ? (
+      {stores === null ? null : stores.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           Brak sklepów. Dodaj pierwszy powyżej.
         </p>
