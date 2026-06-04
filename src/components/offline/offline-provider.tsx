@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 
 import { readAllLists, readAllSets } from "@/lib/offline/db";
+import { isOnline } from "@/lib/offline/offline-mode";
 import { syncNow } from "@/lib/offline/sync";
 
 /**
@@ -23,7 +24,7 @@ export function OfflineProvider() {
 
     void (async () => {
       await syncNow();
-      if (!swEnabled || !navigator.onLine) return;
+      if (!swEnabled || !isOnline()) return;
       try {
         const reg = await navigator.serviceWorker.ready;
         const [lists, sets] = await Promise.all([readAllLists(), readAllSets()]);

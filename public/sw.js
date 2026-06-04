@@ -21,7 +21,7 @@
  *
  * Bump VERSION to invalidate the old cache.
  */
-const VERSION = "v3";
+const VERSION = "v4";
 const CACHE = `zakupy-${VERSION}`;
 const APP_FALLBACK = "/lists";
 const NAV_TIMEOUT = 2500;

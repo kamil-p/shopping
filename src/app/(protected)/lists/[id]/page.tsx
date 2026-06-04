@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
 
 import type { List, ListItem } from "@/db/schema";
 import { readListWithItems } from "@/lib/offline/db";
+import { isOnline } from "@/lib/offline/offline-mode";
 import { syncNow } from "@/lib/offline/sync";
+import { useRouteId } from "@/lib/offline/use-route-id";
 import { Card } from "@/components/ui/card";
 import { ListView } from "@/components/list-view/list-view";
 
@@ -13,12 +14,13 @@ type Data = { list: List; items: ListItem[] };
 
 /**
  * Local-first list detail. Renders from the IndexedDB mirror (instant, works
- * offline); when online it reconciles with the server and re-reads. Because the
- * id comes from the URL on the client, the service worker can serve one cached
- * shell for any list offline.
+ * offline); when online it reconciles with the server and re-reads. The id comes
+ * from the real URL (`useRouteId`, not `useParams`), so the service worker can
+ * boot any list from one cached detail shell offline and we still load the right
+ * record.
  */
 export default function ListDetailPage() {
-  const { id } = useParams<{ id: string }>();
+  const id = useRouteId();
   // undefined = loading, null = not available, Data = ready.
   const [data, setData] = useState<Data | null | undefined>(undefined);
 
@@ -30,8 +32,7 @@ export default function ListDetailPage() {
       if (cancelled) return;
       if (local) setData(local);
 
-      const online = typeof navigator === "undefined" ? true : navigator.onLine;
-      if (online) {
+      if (isOnline()) {
         await syncNow();
         if (cancelled) return;
         const fresh = await readListWithItems(id);

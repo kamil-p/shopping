@@ -473,6 +473,42 @@
   color: var(--primary);
 }
 
+/* Offline-simulation toggle — mirrors the theme switch but the on/off slide is
+   driven by the `.on` class (React state), with an amber accent that ties it to
+   the offline banner. */
+.zk-toggle-switch {
+  margin-left: auto;
+  width: 54px;
+  height: 30px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  border: 1px solid var(--border-strong);
+  position: relative;
+  cursor: pointer;
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+  flex: 0 0 auto;
+}
+.zk-toggle-switch .knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--card);
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--dur) var(--ease);
+}
+.zk-toggle-switch.on {
+  background: color-mix(in oklch, var(--card) 70%, #f59e0b);
+  border-color: #f59e0b;
+}
+.zk-toggle-switch.on .knob {
+  transform: translateX(24px);
+}
+
 /* main column */
 .zk-main {
   flex: 1;

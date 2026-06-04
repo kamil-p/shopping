@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/popover";
 
 import { DefaultStorePicker } from "./default-store-picker";
+import { DeleteSetMenu } from "./delete-set-menu";
 import { MakeListDialog } from "./make-list-dialog";
 import { ProductRow } from "./product-row";
 
@@ -272,6 +273,7 @@ export function SetEditor({
               {items.length} {produkty(items.length)}
             </div>
           </div>
+          <DeleteSetMenu setId={set.id} setName={name} />
         </div>
 
         {/* Default store */}

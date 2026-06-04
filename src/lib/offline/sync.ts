@@ -16,10 +16,7 @@ import {
   putRow,
   setMeta,
 } from "@/lib/offline/db";
-
-function isOnline(): boolean {
-  return typeof navigator === "undefined" ? true : navigator.onLine;
-}
+import { isOnline } from "@/lib/offline/offline-mode";
 
 function timeOf(value: Date | null): number {
   return value ? value.getTime() : 0;

@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
 
 import type { Set, SetItem, Store } from "@/db/schema";
 import { readSetWithItems } from "@/lib/offline/db";
+import { isOnline } from "@/lib/offline/offline-mode";
 import { syncNow } from "@/lib/offline/sync";
+import { useRouteId } from "@/lib/offline/use-route-id";
 import { Card } from "@/components/ui/card";
 import { SetEditor } from "@/components/set-editor/set-editor";
 
@@ -13,10 +14,12 @@ type Data = { set: Set; items: SetItem[]; stores: Store[] };
 
 /**
  * Local-first set editor. Renders from the IndexedDB mirror (instant, works
- * offline); when online it reconciles with the server and re-reads.
+ * offline); when online it reconciles with the server and re-reads. The id comes
+ * from the real URL (`useRouteId`, not `useParams`) so an un-warmed set booted
+ * from another set's cached shell offline still loads the right record.
  */
 export default function SetEditorPage() {
-  const { id } = useParams<{ id: string }>();
+  const id = useRouteId();
   // undefined = loading, null = not available, Data = ready.
   const [data, setData] = useState<Data | null | undefined>(undefined);
 
@@ -28,8 +31,7 @@ export default function SetEditorPage() {
       if (cancelled) return;
       if (local) setData(local);
 
-      const online = typeof navigator === "undefined" ? true : navigator.onLine;
-      if (online) {
+      if (isOnline()) {
         await syncNow();
         if (cancelled) return;
         const fresh = await readSetWithItems(id);

@@ -7,6 +7,7 @@ import { PlusIcon } from "lucide-react";
 
 import type { Set } from "@/db/schema";
 import { readAllSets, saveLocal, type SetSummary } from "@/lib/offline/db";
+import { isOnline } from "@/lib/offline/offline-mode";
 import { pushLocal, syncNow } from "@/lib/offline/sync";
 import { useUserId } from "@/components/offline/user-context";
 import { produkty } from "@/lib/format";
@@ -28,8 +29,7 @@ export default function ZestawyPage() {
     void (async () => {
       const local = await readAllSets();
       if (!cancelled) setSets(local);
-      const online = typeof navigator === "undefined" ? true : navigator.onLine;
-      if (online) {
+      if (isOnline()) {
         await syncNow();
         if (!cancelled) setSets(await readAllSets());
       }

@@ -163,6 +163,21 @@ export async function softDeleteLocal(
 }
 
 /**
+ * Soft-delete a set together with its items, queuing every tombstoned row for
+ * sync. Tombstoning the items too keeps them from lingering as orphans (and lets
+ * the server's tombstone TTL clean them up). Lists made from the set are
+ * untouched — they snapshot their data, with no FK back to the set.
+ */
+export async function softDeleteSet(setId: string): Promise<void> {
+  await softDeleteLocal("sets", setId);
+  for (const item of await getAllRows("setItems")) {
+    if (item.setId === setId && item.deletedAt == null) {
+      await softDeleteLocal("setItems", item.id);
+    }
+  }
+}
+
+/**
  * Clear every reference to a (just deleted) store: null `defaultStoreId` on sets
  * and `storeId` on set items that point at it, queuing those rows for sync.
  * Lists are unaffected — they snapshot the store name as plain text.

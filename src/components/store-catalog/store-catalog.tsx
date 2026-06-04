@@ -10,6 +10,7 @@ import {
   saveLocal,
   softDeleteLocal,
 } from "@/lib/offline/db";
+import { isOnline } from "@/lib/offline/offline-mode";
 import { pushLocal, syncNow } from "@/lib/offline/sync";
 import { useUserId } from "@/components/offline/user-context";
 import { Button } from "@/components/ui/button";
@@ -96,8 +97,7 @@ export function StoreCatalog() {
     void (async () => {
       const local = await readAllStores();
       if (!cancelled) setStores(local);
-      const online = typeof navigator === "undefined" ? true : navigator.onLine;
-      if (online) {
+      if (isOnline()) {
         await syncNow();
         if (!cancelled) setStores(await readAllStores());
       }

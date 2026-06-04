@@ -9,6 +9,7 @@ import { logout } from "@/lib/auth/actions";
 import { NavLinks } from "./nav-links";
 import { InstallButton } from "@/components/install-button";
 import { OfflineBanner } from "@/components/offline/offline-banner";
+import { OfflineToggle } from "@/components/offline/offline-toggle";
 import { APP_VERSION } from "@/lib/version";
 
 function BrandMark() {
@@ -130,6 +131,7 @@ export function AppShell({
         <NavLinks onNavigate={() => setOpen(false)} />
 
         <div className="zk-nav-foot">
+          <OfflineToggle />
           <ThemeControls variant="row" />
           <form action={logout}>
             <button className="zk-nav-item" type="submit">

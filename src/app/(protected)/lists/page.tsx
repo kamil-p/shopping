@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { readAllLists, type ListSummary } from "@/lib/offline/db";
+import { isOnline } from "@/lib/offline/offline-mode";
 import { syncNow } from "@/lib/offline/sync";
 import { formatListDate, listDisplayName } from "@/lib/format";
 import { Card } from "@/components/ui/card";
@@ -23,8 +24,7 @@ export default function ListyPage() {
       const local = await readAllLists();
       if (!cancelled) setLists(local);
 
-      const online = typeof navigator === "undefined" ? true : navigator.onLine;
-      if (online) {
+      if (isOnline()) {
         await syncNow();
         if (!cancelled) setLists(await readAllLists());
       }
