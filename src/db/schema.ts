@@ -118,6 +118,9 @@ export const lists = sqliteTable(
     // Provenance only — deleting the set must not delete historical lists.
     setId: text("set_id").references(() => sets.id, { onDelete: "set null" }),
     name: text("name").notNull(),
+    // The list's default store, snapshotted as plain text (no FK) — items with
+    // a null storeName inherit it, mirroring sets.defaultStoreId semantics.
+    storeName: text("store_name"),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),

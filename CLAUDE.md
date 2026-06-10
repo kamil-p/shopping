@@ -66,11 +66,15 @@ dialect `turso`, local `file:` URL). `index.ts` opens the client and caches it o
 **Shopping domain**: a **set** (zestaw) is a reusable product template (name, emoji, optional
 default store, ordered `set_items`). A `set_item` may carry an `@store` override; otherwise it
 inherits the set's default store. **Stores** are a per-user catalog. A **list** (lista) is a
-*snapshot* generated from a set via "Zrób listę" — `list_items` copy the resolved store name as
-plain text (no FK) and `lists.setId` is `set null`, so editing the set or store catalog later
-never mutates an existing list. Data access lives in `src/lib/{stores,sets,lists}/` split into
-`queries.ts` (plain async, for Server Components) and `actions.ts` (`"use server"` mutations,
-Zod-validated, ownership-scoped via `requireUser()` in `src/lib/auth/require-user.ts`).
+standalone *snapshot*, created either from a set ("Zrób listę") or ad-hoc as a quick list
+("Nowa lista" on `/lists`, `setId: null`). Store semantics on a list mirror sets at two levels,
+but as plain-text name snapshots (no FK): `lists.storeName` is the list's default store and
+`list_items.storeName` is a per-item override (`NULL` = inherit) — so editing the set or store
+catalog later never mutates an existing list, and changing the list's store re-points all
+non-overridden items at once. `/lists/[id]` toggles between the shopping (check-off) view and
+an in-place edit mode (`ListEditView`, deep-linkable via `?edit=1`) that mirrors the set
+editor; both share the generic row in `src/components/product-row.tsx`. Lists made before the
+default-store column simply have the store stamped on every item — they render identically.
 
 **UI structure**: the `(protected)` layout wraps every page in `AppShell`
 (`src/components/app-shell/`) — a responsive sidebar that collapses into a hamburger `Sheet`

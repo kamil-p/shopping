@@ -1,8 +1,10 @@
 /**
- * Build a shopping list locally from a mirrored set — the offline equivalent of
- * the server `createListFromSet`. Resolves each item's store to a plain-text
- * `storeName` snapshot (item override → set default), mints client ids, writes
- * everything to the mirror, and queues it for sync. Browser-only.
+ * Build a shopping list locally — the offline-first equivalent of a server
+ * "create list" action. Store semantics mirror sets: the list carries a
+ * default store as a plain-text snapshot (`lists.storeName`), and an item
+ * carries its own `storeName` only when it overrides that default; null means
+ * "inherit". Mints client ids, writes to the mirror, queues for sync.
+ * Browser-only.
  */
 import type { List, ListItem } from "@/db/schema";
 import { readSetWithItems, saveLocal } from "@/lib/offline/db";
@@ -29,6 +31,7 @@ export async function createListFromMirror(
     userId,
     setId: set.id,
     name: name?.trim() || set.name,
+    storeName: defaultName,
     createdAt: now,
     updatedAt: now,
     deletedAt: null,
@@ -42,9 +45,8 @@ export async function createListFromMirror(
       id: crypto.randomUUID(),
       listId,
       name: item.name,
-      storeName: item.storeId
-        ? (storeName.get(item.storeId) ?? defaultName)
-        : defaultName,
+      // Snapshot only the per-item override; null inherits the list default.
+      storeName: item.storeId ? (storeName.get(item.storeId) ?? null) : null,
       checked: false,
       sortOrder: order * 10,
       createdAt: now,
@@ -56,4 +58,26 @@ export async function createListFromMirror(
 
   void pushLocal();
   return listId;
+}
+
+/** An empty ad-hoc list ("Szybkie zakupy") with no source set. */
+export async function createQuickList(
+  userId: string,
+  name: string,
+  storeName: string | null,
+): Promise<string> {
+  const now = new Date();
+  const list: List = {
+    id: crypto.randomUUID(),
+    userId,
+    setId: null,
+    name: name.trim().slice(0, 120) || "Szybkie zakupy",
+    storeName: storeName?.trim().slice(0, 120) || null,
+    createdAt: now,
+    updatedAt: now,
+    deletedAt: null,
+  };
+  await saveLocal("lists", list);
+  void pushLocal();
+  return list.id;
 }

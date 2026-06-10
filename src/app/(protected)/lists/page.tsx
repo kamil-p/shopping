@@ -8,6 +8,7 @@ import { syncNow } from "@/lib/offline/sync";
 import { formatListDate, listDisplayName } from "@/lib/format";
 import { Card } from "@/components/ui/card";
 import { OfflineLink } from "@/components/offline/offline-link";
+import { NewListDialog } from "@/components/list-view/new-list-dialog";
 
 /**
  * Local-first overview. Reads the lists (with progress counts) from the
@@ -37,15 +38,18 @@ export default function ListyPage() {
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-6 md:px-6">
-      <h1 className="mb-6 font-heading text-2xl font-semibold tracking-tight">
-        Aktywne listy zakupów
-      </h1>
+      <div className="mb-6 flex items-center justify-between gap-3">
+        <h1 className="font-heading text-2xl font-semibold tracking-tight">
+          Aktywne listy zakupów
+        </h1>
+        <NewListDialog />
+      </div>
 
       {lists === null ? null : lists.length === 0 ? (
         <Card className="p-10 text-center">
           <p className="text-sm text-muted-foreground">
-            Brak aktywnych list. Utwórz listę z zestawu, klikając „Zrób listę
-            zakupów”.
+            Brak aktywnych list. Utwórz listę z zestawu („Zrób listę zakupów”)
+            albo zacznij od pustej — „Nowa lista” powyżej.
           </p>
         </Card>
       ) : (

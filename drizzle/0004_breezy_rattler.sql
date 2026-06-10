@@ -1,0 +1,1 @@
+ALTER TABLE `lists` ADD `store_name` text;

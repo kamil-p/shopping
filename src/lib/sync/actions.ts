@@ -187,6 +187,10 @@ export async function pushChanges(
       continue;
     }
     const setId = typeof row.setId === "string" ? row.setId : null;
+    const storeName =
+      typeof row.storeName === "string"
+        ? row.storeName.trim().slice(0, 120) || null
+        : null;
     const deletedAt = toDate(row.deletedAt);
     await db
       .insert(lists)
@@ -195,13 +199,14 @@ export async function pushChanges(
         userId: user.id,
         setId,
         name: name.data,
+        storeName,
         createdAt: toDate(row.createdAt) ?? updatedAt,
         updatedAt,
         deletedAt,
       })
       .onConflictDoUpdate({
         target: lists.id,
-        set: { name: name.data, setId, updatedAt, deletedAt },
+        set: { name: name.data, setId, storeName, updatedAt, deletedAt },
         setWhere: and(lt(lists.updatedAt, updatedAt), eq(lists.userId, user.id)),
       })
       .run();

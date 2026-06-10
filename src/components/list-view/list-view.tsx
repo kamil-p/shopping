@@ -2,7 +2,13 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeftIcon, CheckCheckIcon, CheckIcon, PlusIcon } from "lucide-react";
+import {
+  ArrowLeftIcon,
+  CheckCheckIcon,
+  CheckIcon,
+  PencilIcon,
+  PlusIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import type { List, ListItem } from "@/db/schema";
@@ -22,10 +28,11 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { OfflineLink } from "@/components/offline/offline-link";
+import { ListEditView } from "@/components/list-view/list-edit-view";
 import { useOfflineListSync } from "@/components/list-view/use-offline-list-sync";
 
 export function ListView({
-  list,
+  list: initialList,
   initialItems,
   onBack,
 }: {
@@ -36,7 +43,24 @@ export function ListView({
   onBack?: () => void;
 }) {
   const router = useRouter();
-  const { items, toggle, addItem } = useOfflineListSync(list, initialItems);
+  const {
+    list,
+    items,
+    setItems,
+    toggle,
+    addItem,
+    updateList,
+    renameItem,
+    setItemStore,
+    deleteItem,
+    reorderItems,
+  } = useOfflineListSync(initialList, initialItems);
+  // Edit mode lives on the same URL; "Nowa lista" deep-links into it (?edit=1).
+  const [editing, setEditing] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).has("edit"),
+  );
   const [draft, setDraft] = useState("");
   const draftRef = useRef<HTMLInputElement>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -46,7 +70,8 @@ export function ListView({
   const groups = useMemo(() => {
     const map = new Map<string, ListItem[]>();
     for (const item of items) {
-      const key = item.storeName ?? "Bez sklepu";
+      // Item override → list default → no store (same resolution as sets).
+      const key = item.storeName ?? list.storeName ?? "Bez sklepu";
       const arr = map.get(key);
       if (arr) arr.push(item);
       else map.set(key, [item]);
@@ -55,7 +80,7 @@ export function ListView({
       store,
       items: groupItems,
     }));
-  }, [items]);
+  }, [items, list.storeName]);
 
   function submitDraft() {
     const value = draft.trim();
@@ -63,6 +88,14 @@ export function ListView({
     addItem(value);
     setDraft("");
     draftRef.current?.focus();
+  }
+
+  function closeEdit() {
+    setEditing(false);
+    // Drop a ?edit=1 deep link so a refresh lands on the shopping view.
+    if (window.location.search) {
+      window.history.replaceState(null, "", window.location.pathname);
+    }
   }
 
   function finish() {
@@ -73,6 +106,23 @@ export function ListView({
     toast.success("Zakupy zakończone");
     if (onBack) onBack();
     else router.push("/lists");
+  }
+
+  if (editing) {
+    return (
+      <ListEditView
+        list={list}
+        items={items}
+        setItems={setItems}
+        onAdd={addItem}
+        onUpdateList={updateList}
+        onRenameItem={renameItem}
+        onSetItemStore={setItemStore}
+        onDeleteItem={deleteItem}
+        onReorder={reorderItems}
+        onDone={closeEdit}
+      />
+    );
   }
 
   return (
@@ -96,7 +146,7 @@ export function ListView({
         </OfflineLink>
       )}
 
-      <header className="mb-6 flex items-start justify-between gap-4">
+      <header className="mb-6 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="font-heading text-2xl font-semibold tracking-tight">
             {listDisplayName(list.name)}
@@ -105,29 +155,35 @@ export function ListView({
             {checkedCount}/{items.length} odhaczonych
           </p>
         </div>
-        <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-          <DialogTrigger render={<Button variant="outline" />}>
-            <CheckCheckIcon />
-            Zakończ zakupy
-          </DialogTrigger>
-          <DialogContent showCloseButton={false}>
-            <DialogHeader>
-              <DialogTitle>Zakończyć listę?</DialogTitle>
-              <DialogDescription>
-                Lista „{listDisplayName(list.name)}” zostanie trwale usunięta.
-                Nie można tego cofnąć.
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <DialogClose render={<Button variant="outline" />}>
-                Anuluj
-              </DialogClose>
-              <Button variant="destructive" onClick={finish}>
-                Zakończ i usuń
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <div className="flex shrink-0 gap-2">
+          <Button variant="outline" onClick={() => setEditing(true)}>
+            <PencilIcon />
+            Edytuj
+          </Button>
+          <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+            <DialogTrigger render={<Button variant="outline" />}>
+              <CheckCheckIcon />
+              Zakończ zakupy
+            </DialogTrigger>
+            <DialogContent showCloseButton={false}>
+              <DialogHeader>
+                <DialogTitle>Zakończyć listę?</DialogTitle>
+                <DialogDescription>
+                  Lista „{listDisplayName(list.name)}” zostanie trwale
+                  usunięta. Nie można tego cofnąć.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <DialogClose render={<Button variant="outline" />}>
+                  Anuluj
+                </DialogClose>
+                <Button variant="destructive" onClick={finish}>
+                  Zakończ i usuń
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
       </header>
 
       <div className="space-y-5">
@@ -169,7 +225,7 @@ export function ListView({
         ))}
 
         {/* Add ad-hoc items. A list is a standalone snapshot — these never
-            touch the source set. */}
+            touch the source set. New items inherit the list's default store. */}
         <div>
           {items.length === 0 ? (
             <p className="mb-2 text-sm text-muted-foreground">

@@ -10,7 +10,6 @@ import {
   Trash2Icon,
 } from "lucide-react";
 
-import type { SetItem, Store } from "@/db/schema";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,9 +21,19 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
+/**
+ * One editable product row, shared by the set editor and the list editor.
+ * Domain-neutral: the store is a radio over opaque `storeOptions` values
+ * (store ids for sets, store names for lists) with "none" meaning "inherit
+ * the parent's default" (`inheritLabel`).
+ */
 export function ProductRow({
-  item,
-  stores,
+  id,
+  name,
+  storeTag,
+  storeValue,
+  storeOptions,
+  inheritLabel,
   isFirst,
   isLast,
   isDragging,
@@ -36,13 +45,19 @@ export function ProductRow({
   onDragEnter,
   onDragEnd,
 }: {
-  item: SetItem;
-  stores: Store[];
+  id: string;
+  name: string;
+  /** Label of the current store override, shown as a tag; null when inheriting. */
+  storeTag: string | null;
+  /** Current radio value; "none" selects the inherit option. */
+  storeValue: string;
+  storeOptions: { value: string; label: string }[];
+  inheritLabel: string;
   isFirst: boolean;
   isLast: boolean;
   isDragging: boolean;
   onRename: (name: string) => void;
-  onSetStore: (storeId: string | null) => void;
+  onSetStore: (value: string | null) => void;
   onMove: (direction: -1 | 1) => void;
   onDelete: () => void;
   onDragStart: () => void;
@@ -51,12 +66,11 @@ export function ProductRow({
 }) {
   const [editing, setEditing] = useState(false);
   const [grabbed, setGrabbed] = useState(false);
-  const overrideStore = stores.find((s) => s.id === item.storeId);
 
   function commit(value: string) {
     const next = value.trim();
     setEditing(false);
-    if (next && next !== item.name) onRename(next);
+    if (next && next !== name) onRename(next);
   }
 
   return (
@@ -66,7 +80,7 @@ export function ProductRow({
       onDragStart={(e) => {
         e.dataTransfer.effectAllowed = "move";
         // Firefox only starts a drag once some data is set.
-        e.dataTransfer.setData("text/plain", item.id);
+        e.dataTransfer.setData("text/plain", id);
         onDragStart();
       }}
       onDragEnter={onDragEnter}
@@ -101,7 +115,7 @@ export function ProductRow({
         <input
           autoFocus
           className="zk-row-name editable"
-          defaultValue={item.name}
+          defaultValue={name}
           onBlur={(e) => commit(e.currentTarget.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") commit(e.currentTarget.value);
@@ -114,14 +128,14 @@ export function ProductRow({
           className="zk-row-name truncate"
           onClick={() => setEditing(true)}
         >
-          {item.name}
+          {name}
         </button>
       )}
 
-      {overrideStore ? (
+      {storeTag ? (
         <span className="zk-store-tag">
           <TagIcon className="size-[13px]" />
-          {overrideStore.name}
+          {storeTag}
         </span>
       ) : null}
 
@@ -131,7 +145,7 @@ export function ProductRow({
             <button
               type="button"
               className="zk-row-kebab"
-              aria-label={`Opcje dla ${item.name}`}
+              aria-label={`Opcje dla ${name}`}
             />
           }
         >
@@ -145,18 +159,18 @@ export function ProductRow({
 
           <DropdownMenuSeparator />
           <DropdownMenuRadioGroup
-            value={item.storeId ?? "none"}
+            value={storeValue}
             onValueChange={(value) =>
               onSetStore(value === "none" ? null : value)
             }
           >
             <DropdownMenuLabel>Sklep</DropdownMenuLabel>
             <DropdownMenuRadioItem value="none">
-              Domyślny zestawu
+              {inheritLabel}
             </DropdownMenuRadioItem>
-            {stores.map((store) => (
-              <DropdownMenuRadioItem key={store.id} value={store.id}>
-                {store.name}
+            {storeOptions.map((option) => (
+              <DropdownMenuRadioItem key={option.value} value={option.value}>
+                {option.label}
               </DropdownMenuRadioItem>
             ))}
           </DropdownMenuRadioGroup>

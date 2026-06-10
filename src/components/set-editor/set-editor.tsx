@@ -14,10 +14,11 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 
+import { ProductRow } from "@/components/product-row";
+
 import { DefaultStorePicker } from "./default-store-picker";
 import { DeleteSetMenu } from "./delete-set-menu";
 import { MakeListDialog } from "./make-list-dialog";
-import { ProductRow } from "./product-row";
 
 const EMOJIS = [
   "🧺", "🥦", "🍎", "🥕", "🍌", "🥩", "🐟", "🧀",
@@ -314,8 +315,17 @@ export function SetEditor({
               items.map((item, index) => (
                 <ProductRow
                   key={item.id}
-                  item={item}
-                  stores={stores}
+                  id={item.id}
+                  name={item.name}
+                  storeTag={
+                    stores.find((s) => s.id === item.storeId)?.name ?? null
+                  }
+                  storeValue={item.storeId ?? "none"}
+                  storeOptions={stores.map((s) => ({
+                    value: s.id,
+                    label: s.name,
+                  }))}
+                  inheritLabel="Domyślny zestawu"
                   isFirst={index === 0}
                   isLast={index === items.length - 1}
                   isDragging={draggingId === item.id}
