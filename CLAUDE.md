@@ -23,6 +23,9 @@ pnpm db:studio        # open Drizzle Studio
 
 pnpm create-user <email> <password>   # provision a user (no args → interactive prompts)
 pnpm db:seed <email>                  # insert demo data (a 🥦 Warzywa set + stores) for a user
+
+pnpm run deploy       # alias for ./ops/deploy.sh (see Deployment) — must be `run deploy`,
+                      # plain `pnpm deploy` hits pnpm's built-in workspace command
 ```
 
 There is no test runner configured.
